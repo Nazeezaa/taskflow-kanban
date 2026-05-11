@@ -29,6 +29,7 @@ export async function fetchBoard(): Promise<Board | null> {
     { data: checklistItems },
     { data: comments },
     { data: activities },
+    { data: attachments },
   ] = await Promise.all([
     supabase.from('cards').select('*').in('list_id', listIds).order('position'),
     supabase.from('card_labels').select('*'),
@@ -37,6 +38,7 @@ export async function fetchBoard(): Promise<Board | null> {
     supabase.from('checklist_items').select('*').order('position'),
     supabase.from('comments').select('*').order('created_at', { ascending: false }),
     supabase.from('activities').select('*').order('timestamp', { ascending: false }),
+    supabase.from('attachments').select('*').order('created_at', { ascending: false }),
   ]);
 
   const labelMap = new Map((labels || []).map((l: any) => [l.id, { id: l.id, name: l.name, color: l.color }]));
@@ -76,7 +78,9 @@ export async function fetchBoard(): Promise<Board | null> {
     activities: (activities || []).filter((a: any) => a.card_id === c.id).map((a: any) => ({
       id: a.id, type: a.type, fromListTitle: a.from_list_title, toListTitle: a.to_list_title, detail: a.detail, timestamp: a.timestamp,
     })),
-    attachments: [],
+    attachments: (attachments || []).filter((a: any) => a.card_id === c.id).map((a: any) => ({
+      id: a.id, name: a.name, url: a.url, type: a.type, size: a.size, isCover: a.is_cover, createdAt: a.created_at,
+    })),
   }));
 
   const builtLists: List[] = lists.map((l: any) => ({
@@ -184,6 +188,29 @@ export async function dbToggleCardMember(cardId: string, memberId: string, has: 
     return supabase.from('card_members').delete().eq('card_id', cardId).eq('member_id', memberId);
   }
   return supabase.from('card_members').insert({ card_id: cardId, member_id: memberId });
+}
+
+export async function dbAddAttachment(cardId: string, name: string, url: string, type: string, size: number) {
+  return supabase.from('attachments').insert({ card_id: cardId, name, url, type, size }).select().single();
+}
+
+export async function dbDeleteAttachment(id: string) {
+  return supabase.from('attachments').delete().eq('id', id);
+}
+
+export async function dbSetAttachmentAsCover(cardId: string, attachmentId: string, url: string) {
+  await supabase.from('attachments').update({ is_cover: false }).eq('card_id', cardId);
+  await supabase.from('attachments').update({ is_cover: true }).eq('id', attachmentId);
+  await supabase.from('cards').update({ cover_image: url }).eq('id', cardId);
+}
+
+export async function dbUploadFile(cardId: string, file: File): Promise<{ url: string; path: string } | null> {
+  const ext = file.name.split('.').pop();
+  const path = `attachments/${cardId}-${uuidv4()}.${ext}`;
+  const { error } = await supabase.storage.from('card-covers').upload(path, file);
+  if (error) return null;
+  const { data } = supabase.storage.from('card-covers').getPublicUrl(path);
+  return { url: data.publicUrl, path };
 }
 
 export async function dbUploadCoverImage(cardId: string, file: File): Promise<string | null> {

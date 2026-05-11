@@ -28,8 +28,10 @@ export interface Attachment {
   id: string;
   name: string;
   url: string;
-  type: 'image' | 'file' | 'link';
-  thumbnailUrl?: string;
+  type: string;
+  size?: number;
+  isCover?: boolean;
+  createdAt: string;
 }
 
 export interface CardActivity {

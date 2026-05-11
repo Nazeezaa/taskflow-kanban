@@ -6,6 +6,7 @@ import {
   fetchBoard, dbAddCard, dbUpdateCard, dbDeleteCard, dbMoveCard,
   dbAddList, dbDeleteList, dbAddComment, dbAddChecklist,
   dbAddChecklistItem, dbToggleChecklistItem, dbToggleCardLabel, dbToggleCardMember,
+  dbAddAttachment, dbDeleteAttachment, dbSetAttachmentAsCover, dbUploadFile,
 } from '@/lib/db';
 
 interface BoardState {
@@ -47,6 +48,9 @@ interface BoardState {
   toggleChecklistItem: (cardId: string, checklistId: string, itemId: string) => void;
   toggleCardLabel: (cardId: string, label: Label) => void;
   toggleCardMember: (cardId: string, member: Member) => void;
+  uploadAttachment: (cardId: string, file: File) => Promise<void>;
+  deleteAttachment: (cardId: string, attachmentId: string) => void;
+  setAttachmentAsCover: (cardId: string, attachmentId: string, url: string) => void;
 }
 
 export const useBoardStore = create<BoardState>()((set, get) => ({
@@ -267,6 +271,23 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
         })),
       })),
     }));
+  },
+  uploadAttachment: async (cardId, file) => {
+    const result = await dbUploadFile(cardId, file);
+    if (!result) return;
+    const isImage = file.type.startsWith('image/');
+    await dbAddAttachment(cardId, file.name, result.url, file.type, file.size);
+    get().loadBoard();
+  },
+
+  deleteAttachment: async (cardId, attachmentId) => {
+    await dbDeleteAttachment(attachmentId);
+    get().loadBoard();
+  },
+
+  setAttachmentAsCover: async (cardId, attachmentId, url) => {
+    await dbSetAttachmentAsCover(cardId, attachmentId, url);
+    get().loadBoard();
   },
 }));
 

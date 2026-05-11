@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
-  X, Calendar, Tag, Users, CheckSquare, MessageSquare, Paperclip, Trash2,
+  X, Calendar, Tag, Users, CheckSquare, MessageSquare, Image, Trash2,
   Eye, EyeOff, AlignLeft, Clock, Plus
 } from 'lucide-react';
 import type { Card, Label, Member } from '@/types';
 import { useBoardStore } from '@/store/boardStore';
+import { dbUploadCoverImage } from '@/lib/db';
 
 export default function CardModal() {
   const {
@@ -61,6 +62,20 @@ function CardModalContent({
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
   const [showAddChecklist, setShowAddChecklist] = useState(false);
   const [checklistInputs, setChecklistInputs] = useState<Record<string, string>>({});
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const url = await dbUploadCoverImage(card.id, file);
+    if (url) {
+      updateCard(card.id, { coverImage: url, coverColor: undefined });
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleSaveTitle = () => {
     if (title.trim() && title !== card.title) {
@@ -90,9 +105,19 @@ function CardModalContent({
 
   return (
     <div className="p-5">
-      {card.coverColor && (
+      {card.coverImage ? (
+        <div className="relative -mx-5 -mt-5 mb-4">
+          <img src={card.coverImage} alt="" className="w-full h-40 object-cover rounded-t-xl" />
+          <button
+            onClick={() => updateCard(card.id, { coverImage: undefined })}
+            className="absolute top-2 right-2 p-1 bg-black/50 rounded hover:bg-black/70 text-white"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : card.coverColor ? (
         <div className="h-20 -mx-5 -mt-5 rounded-t-xl mb-4" style={{ backgroundColor: card.coverColor }} />
-      )}
+      ) : null}
 
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex-1">
@@ -371,6 +396,21 @@ function CardModalContent({
               </button>
             </div>
           )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleUploadCover}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="sidebar-btn"
+          >
+            <Image size={14} /> {uploading ? 'กำลังอัพ...' : 'รูปปก'}
+          </button>
 
           <button
             onClick={() => updateCard(card.id, { isWatching: !card.isWatching })}

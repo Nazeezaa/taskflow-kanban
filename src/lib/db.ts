@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { v4 as uuidv4 } from 'uuid';
 import type { Board, Card, List, Label, Member, Checklist, ChecklistItem, Comment, CardActivity } from '@/types';
 
 const BOARD_ID = '00000000-0000-0000-0000-000000000001';
@@ -118,6 +119,7 @@ export async function dbUpdateCard(cardId: string, updates: Record<string, any>)
   if (updates.dueDate !== undefined) mapped.due_date = updates.dueDate || null;
   if (updates.startDate !== undefined) mapped.start_date = updates.startDate || null;
   if (updates.coverColor !== undefined) mapped.cover_color = updates.coverColor;
+  if (updates.coverImage !== undefined) mapped.cover_image = updates.coverImage;
   if (updates.isWatching !== undefined) mapped.is_watching = updates.isWatching;
   if (updates.completedAt !== undefined) mapped.completed_at = updates.completedAt;
 
@@ -182,4 +184,13 @@ export async function dbToggleCardMember(cardId: string, memberId: string, has: 
     return supabase.from('card_members').delete().eq('card_id', cardId).eq('member_id', memberId);
   }
   return supabase.from('card_members').insert({ card_id: cardId, member_id: memberId });
+}
+
+export async function dbUploadCoverImage(cardId: string, file: File): Promise<string | null> {
+  const ext = file.name.split('.').pop();
+  const path = `covers/${cardId}-${uuidv4()}.${ext}`;
+  const { error } = await supabase.storage.from('card-covers').upload(path, file);
+  if (error) return null;
+  const { data } = supabase.storage.from('card-covers').getPublicUrl(path);
+  return data.publicUrl;
 }

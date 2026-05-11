@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { Board, Card, List, Label, Member, CardActivity } from '@/types';
+import type { Board, Card, List, Label, Member } from '@/types';
 import { supabase } from '@/lib/supabase';
 import {
   fetchBoard, dbAddCard, dbUpdateCard, dbDeleteCard, dbMoveCard,
-  dbAddList, dbDeleteList, dbAddComment, dbAddChecklist,
-  dbAddChecklistItem, dbToggleChecklistItem, dbToggleCardLabel, dbToggleCardMember,
-  dbAddAttachment, dbDeleteAttachment, dbSetAttachmentAsCover, dbUploadFile,
+  dbAddList, dbDeleteList, dbAddComment, dbUpdateComment, dbDeleteComment,
+  dbAddChecklist, dbDeleteChecklist, dbAddChecklistItem, dbToggleChecklistItem, dbDeleteChecklistItem,
+  dbToggleCardLabel, dbToggleCardMember,
+  dbAddAttachment, dbDeleteAttachment, dbSetAttachmentAsCover, dbRemoveCover, dbUploadFile,
+  dbArchiveCard, dbCopyCard, dbMoveCardToList,
 } from '@/lib/db';
 
 interface BoardState {
@@ -40,17 +42,28 @@ interface BoardState {
   addCard: (listId: string, title: string) => void;
   updateCard: (cardId: string, updates: Partial<Card>) => void;
   deleteCard: (cardId: string) => void;
+  archiveCard: (cardId: string) => void;
+  copyCard: (card: Card, toListId: string) => void;
+  moveCardToList: (cardId: string, toListId: string) => void;
   moveCard: (cardId: string, toListId: string, toIndex: number) => void;
 
-  addComment: (cardId: string, text: string, authorName: string) => void;
+  addComment: (cardId: string, text: string, authorName: string, imageUrl?: string) => void;
+  updateComment: (cardId: string, commentId: string, text: string) => void;
+  deleteComment: (cardId: string, commentId: string) => void;
+
   addChecklist: (cardId: string, title: string) => void;
+  deleteChecklist: (cardId: string, checklistId: string) => void;
   addChecklistItem: (cardId: string, checklistId: string, text: string) => void;
   toggleChecklistItem: (cardId: string, checklistId: string, itemId: string) => void;
+  deleteChecklistItem: (cardId: string, checklistId: string, itemId: string) => void;
+
   toggleCardLabel: (cardId: string, label: Label) => void;
   toggleCardMember: (cardId: string, member: Member) => void;
+
   uploadAttachment: (cardId: string, file: File) => Promise<void>;
   deleteAttachment: (cardId: string, attachmentId: string) => void;
   setAttachmentAsCover: (cardId: string, attachmentId: string, url: string) => void;
+  removeCover: (cardId: string) => void;
 }
 
 export const useBoardStore = create<BoardState>()((set, get) => ({
@@ -89,16 +102,17 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     aiMessages: [...s.aiMessages, { id: uuidv4(), role, content, timestamp: new Date().toISOString() }],
   })),
 
+  // --- Lists ---
   addList: async (boardId, title) => {
     const { data } = await dbAddList(boardId, title);
     if (data) get().loadBoard();
   },
-
   deleteList: async (listId) => {
     await dbDeleteList(listId);
     get().loadBoard();
   },
 
+  // --- Cards ---
   addCard: async (listId, title) => {
     await dbAddCard(listId, title);
     get().loadBoard();
@@ -106,7 +120,6 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
 
   updateCard: async (cardId, updates) => {
     await dbUpdateCard(cardId, updates);
-    // Optimistic update
     set(s => ({
       boards: s.boards.map(b => ({
         ...b, lists: b.lists.map(l => ({
@@ -128,18 +141,45 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     }));
   },
 
-  moveCard: async (cardId, toListId, toIndex) => {
+  archiveCard: async (cardId) => {
+    await dbArchiveCard(cardId);
+    set(s => ({
+      selectedCardId: s.selectedCardId === cardId ? null : s.selectedCardId,
+      boards: s.boards.map(b => ({
+        ...b, lists: b.lists.map(l => ({
+          ...l, cards: l.cards.filter(c => c.id !== cardId),
+        })),
+      })),
+    }));
+  },
+
+  copyCard: async (card, toListId) => {
+    await dbCopyCard(card, toListId);
+    get().loadBoard();
+  },
+
+  moveCardToList: async (cardId, toListId) => {
     const board = get().getActiveBoard();
     if (!board) return;
-
     let fromListTitle = '';
     let toListTitle = '';
     for (const l of board.lists) {
       if (l.cards.some(c => c.id === cardId)) fromListTitle = l.title;
       if (l.id === toListId) toListTitle = l.title;
     }
+    await dbMoveCardToList(cardId, toListId, fromListTitle, toListTitle);
+    get().loadBoard();
+  },
 
-    // Optimistic update
+  moveCard: async (cardId, toListId, toIndex) => {
+    const board = get().getActiveBoard();
+    if (!board) return;
+    let fromListTitle = '';
+    let toListTitle = '';
+    for (const l of board.lists) {
+      if (l.cards.some(c => c.id === cardId)) fromListTitle = l.title;
+      if (l.id === toListId) toListTitle = l.title;
+    }
     set(s => {
       const boards = s.boards.map(b => {
         let movedCard: Card | null = null;
@@ -160,27 +200,42 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       });
       return { boards };
     });
-
     await dbMoveCard(cardId, toListId, toIndex, fromListTitle, toListTitle);
   },
 
-  addComment: async (cardId, text, authorName) => {
-    const { data } = await dbAddComment(cardId, text, authorName);
-    if (data) {
-      set(s => ({
-        boards: s.boards.map(b => ({
-          ...b, lists: b.lists.map(l => ({
-            ...l, cards: l.cards.map(c => c.id === cardId ? {
-              ...c, comments: [...c.comments, {
-                id: data.id, text, authorId: '', authorName, createdAt: data.created_at,
-              }],
-            } : c),
-          })),
-        })),
-      }));
-    }
+  // --- Comments ---
+  addComment: async (cardId, text, authorName, imageUrl) => {
+    const { data } = await dbAddComment(cardId, text, authorName, imageUrl);
+    if (data) get().loadBoard();
   },
 
+  updateComment: async (cardId, commentId, text) => {
+    await dbUpdateComment(commentId, text);
+    set(s => ({
+      boards: s.boards.map(b => ({
+        ...b, lists: b.lists.map(l => ({
+          ...l, cards: l.cards.map(c => c.id === cardId ? {
+            ...c, comments: c.comments.map(cm => cm.id === commentId ? { ...cm, text, updatedAt: new Date().toISOString() } : cm),
+          } : c),
+        })),
+      })),
+    }));
+  },
+
+  deleteComment: async (cardId, commentId) => {
+    await dbDeleteComment(commentId);
+    set(s => ({
+      boards: s.boards.map(b => ({
+        ...b, lists: b.lists.map(l => ({
+          ...l, cards: l.cards.map(c => c.id === cardId ? {
+            ...c, comments: c.comments.filter(cm => cm.id !== commentId),
+          } : c),
+        })),
+      })),
+    }));
+  },
+
+  // --- Checklists ---
   addChecklist: async (cardId, title) => {
     const { data } = await dbAddChecklist(cardId, title);
     if (data) {
@@ -194,6 +249,19 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
         })),
       }));
     }
+  },
+
+  deleteChecklist: async (cardId, checklistId) => {
+    await dbDeleteChecklist(checklistId);
+    set(s => ({
+      boards: s.boards.map(b => ({
+        ...b, lists: b.lists.map(l => ({
+          ...l, cards: l.cards.map(c => c.id === cardId ? {
+            ...c, checklists: c.checklists.filter(cl => cl.id !== checklistId),
+          } : c),
+        })),
+      })),
+    }));
   },
 
   addChecklistItem: async (cardId, checklistId, text) => {
@@ -218,10 +286,8 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     const card = board?.lists.flatMap(l => l.cards).find(c => c.id === cardId);
     const item = card?.checklists.find(cl => cl.id === checklistId)?.items.find(i => i.id === itemId);
     if (!item) return;
-
     const newVal = !item.completed;
     await dbToggleChecklistItem(itemId, newVal);
-
     set(s => ({
       boards: s.boards.map(b => ({
         ...b, lists: b.lists.map(l => ({
@@ -235,13 +301,27 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     }));
   },
 
+  deleteChecklistItem: async (cardId, checklistId, itemId) => {
+    await dbDeleteChecklistItem(itemId);
+    set(s => ({
+      boards: s.boards.map(b => ({
+        ...b, lists: b.lists.map(l => ({
+          ...l, cards: l.cards.map(c => c.id === cardId ? {
+            ...c, checklists: c.checklists.map(cl => cl.id === checklistId ? {
+              ...cl, items: cl.items.filter(i => i.id !== itemId),
+            } : cl),
+          } : c),
+        })),
+      })),
+    }));
+  },
+
+  // --- Labels & Members ---
   toggleCardLabel: async (cardId, label) => {
     const board = get().getActiveBoard();
     const card = board?.lists.flatMap(l => l.cards).find(c => c.id === cardId);
     const has = card?.labels.some(l => l.id === label.id) || false;
-
     await dbToggleCardLabel(cardId, label.id, has);
-
     set(s => ({
       boards: s.boards.map(b => ({
         ...b, lists: b.lists.map(l => ({
@@ -258,9 +338,7 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     const board = get().getActiveBoard();
     const card = board?.lists.flatMap(l => l.cards).find(c => c.id === cardId);
     const has = card?.members.some(m => m.id === member.id) || false;
-
     await dbToggleCardMember(cardId, member.id, has);
-
     set(s => ({
       boards: s.boards.map(b => ({
         ...b, lists: b.lists.map(l => ({
@@ -272,10 +350,11 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       })),
     }));
   },
+
+  // --- Attachments ---
   uploadAttachment: async (cardId, file) => {
     const result = await dbUploadFile(cardId, file);
     if (!result) return;
-    const isImage = file.type.startsWith('image/');
     await dbAddAttachment(cardId, file.name, result.url, file.type, file.size);
     get().loadBoard();
   },
@@ -287,6 +366,11 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
 
   setAttachmentAsCover: async (cardId, attachmentId, url) => {
     await dbSetAttachmentAsCover(cardId, attachmentId, url);
+    get().loadBoard();
+  },
+
+  removeCover: async (cardId) => {
+    await dbRemoveCover(cardId);
     get().loadBoard();
   },
 }));
@@ -302,6 +386,9 @@ if (typeof window !== 'undefined') {
       useBoardStore.getState().loadBoard();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
+      useBoardStore.getState().loadBoard();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'attachments' }, () => {
       useBoardStore.getState().loadBoard();
     })
     .subscribe();

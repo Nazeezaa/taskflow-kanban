@@ -21,7 +21,9 @@ export interface Comment {
   text: string;
   authorId: string;
   authorName: string;
+  imageUrl?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Attachment {
@@ -62,6 +64,7 @@ export interface Card {
   members: Member[];
   activities: CardActivity[];
   isWatching: boolean;
+  archived: boolean;
   completedAt?: string;
   createdAt: string;
   updatedAt: string;

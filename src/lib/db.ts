@@ -31,13 +31,13 @@ export async function fetchBoard(): Promise<Board | null> {
     { data: activities },
     { data: attachments },
   ] = await Promise.all([
-    supabase.from('cards').select('*').in('list_id', listIds).order('position'),
+    supabase.from('cards').select('*').in('list_id', listIds).eq('archived', false).order('position'),
     supabase.from('card_labels').select('*'),
     supabase.from('card_members').select('*'),
     supabase.from('checklists').select('*').order('position'),
     supabase.from('checklist_items').select('*').order('position'),
-    supabase.from('comments').select('*').order('created_at', { ascending: false }),
-    supabase.from('activities').select('*').order('timestamp', { ascending: false }),
+    supabase.from('comments').select('*').order('created_at', { ascending: true }),
+    supabase.from('activities').select('*').order('timestamp', { ascending: true }),
     supabase.from('attachments').select('*').order('created_at', { ascending: false }),
   ]);
 
@@ -66,6 +66,7 @@ export async function fetchBoard(): Promise<Board | null> {
     coverColor: c.cover_color,
     coverImage: c.cover_image,
     isWatching: c.is_watching,
+    archived: c.archived || false,
     completedAt: c.completed_at,
     createdAt: c.created_at,
     updatedAt: c.updated_at,
@@ -73,7 +74,8 @@ export async function fetchBoard(): Promise<Board | null> {
     members: (cardMembers || []).filter((cm: any) => cm.card_id === c.id).map((cm: any) => memberMap.get(cm.member_id)).filter(Boolean) as Member[],
     checklists: cardChecklists.get(c.id) || [],
     comments: (comments || []).filter((cm: any) => cm.card_id === c.id).map((cm: any) => ({
-      id: cm.id, text: cm.text, authorId: '', authorName: cm.author_name, createdAt: cm.created_at,
+      id: cm.id, text: cm.text, authorId: '', authorName: cm.author_name,
+      imageUrl: cm.image_url, createdAt: cm.created_at, updatedAt: cm.updated_at,
     })),
     activities: (activities || []).filter((a: any) => a.card_id === c.id).map((a: any) => ({
       id: a.id, type: a.type, fromListTitle: a.from_list_title, toListTitle: a.to_list_title, detail: a.detail, timestamp: a.timestamp,
@@ -103,12 +105,11 @@ export async function fetchBoard(): Promise<Board | null> {
   };
 }
 
-// --- Mutations ---
+// --- Card CRUD ---
 
 export async function dbAddCard(listId: string, title: string) {
   const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', listId).order('position', { ascending: false }).limit(1).single();
   const pos = (maxPos?.position ?? -1) + 1;
-
   const { data: card } = await supabase.from('cards').insert({ list_id: listId, title, position: pos }).select().single();
   if (card) {
     await supabase.from('activities').insert({ card_id: card.id, type: 'created' });
@@ -123,10 +124,10 @@ export async function dbUpdateCard(cardId: string, updates: Record<string, any>)
   if (updates.dueDate !== undefined) mapped.due_date = updates.dueDate || null;
   if (updates.startDate !== undefined) mapped.start_date = updates.startDate || null;
   if (updates.coverColor !== undefined) mapped.cover_color = updates.coverColor;
-  if (updates.coverImage !== undefined) mapped.cover_image = updates.coverImage;
+  if (updates.coverImage !== undefined) mapped.cover_image = updates.coverImage || null;
   if (updates.isWatching !== undefined) mapped.is_watching = updates.isWatching;
   if (updates.completedAt !== undefined) mapped.completed_at = updates.completedAt;
-
+  if (updates.archived !== undefined) mapped.archived = updates.archived;
   return supabase.from('cards').update(mapped).eq('id', cardId);
 }
 
@@ -134,21 +135,65 @@ export async function dbDeleteCard(cardId: string) {
   return supabase.from('cards').delete().eq('id', cardId);
 }
 
-export async function dbMoveCard(cardId: string, toListId: string, toIndex: number, fromListTitle?: string, toListTitle?: string) {
-  await supabase.from('cards').update({ list_id: toListId, position: toIndex, updated_at: new Date().toISOString() }).eq('id', cardId);
+export async function dbArchiveCard(cardId: string) {
+  return supabase.from('cards').update({ archived: true, updated_at: new Date().toISOString() }).eq('id', cardId);
+}
 
-  const type = [6, 7, 8, 9].some(p => toListTitle?.includes('เสร็จ') || toListTitle?.includes('โพส')) ? 'completed' : 'moved';
+export async function dbCopyCard(card: Card, toListId: string) {
+  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', toListId).order('position', { ascending: false }).limit(1).single();
+  const pos = (maxPos?.position ?? -1) + 1;
+  const { data: newCard } = await supabase.from('cards').insert({
+    list_id: toListId, title: card.title + ' (copy)', description: card.description,
+    position: pos, due_date: card.dueDate || null, start_date: card.startDate || null,
+    cover_color: card.coverColor, cover_image: card.coverImage,
+  }).select().single();
+  if (newCard) {
+    for (const l of card.labels) {
+      await supabase.from('card_labels').insert({ card_id: newCard.id, label_id: l.id });
+    }
+    for (const m of card.members) {
+      await supabase.from('card_members').insert({ card_id: newCard.id, member_id: m.id });
+    }
+    for (const cl of card.checklists) {
+      const { data: newCl } = await supabase.from('checklists').insert({ card_id: newCard.id, title: cl.title }).select().single();
+      if (newCl) {
+        for (const item of cl.items) {
+          await supabase.from('checklist_items').insert({ checklist_id: newCl.id, text: item.text, completed: item.completed });
+        }
+      }
+    }
+    await supabase.from('activities').insert({ card_id: newCard.id, type: 'created', detail: 'Copied card' });
+  }
+  return newCard;
+}
 
+export async function dbMoveCardToList(cardId: string, toListId: string, fromListTitle: string, toListTitle: string) {
+  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', toListId).order('position', { ascending: false }).limit(1).single();
+  const pos = (maxPos?.position ?? -1) + 1;
+  await supabase.from('cards').update({ list_id: toListId, position: pos, updated_at: new Date().toISOString() }).eq('id', cardId);
+  const isComplete = toListTitle.includes('เสร็จ') || toListTitle.includes('โพส');
   await supabase.from('activities').insert({
-    card_id: cardId, type,
-    from_list_title: fromListTitle,
-    to_list_title: toListTitle,
+    card_id: cardId, type: isComplete ? 'completed' : 'moved',
+    from_list_title: fromListTitle, to_list_title: toListTitle,
   });
-
-  if (type === 'completed') {
+  if (isComplete) {
     await supabase.from('cards').update({ completed_at: new Date().toISOString() }).eq('id', cardId);
   }
 }
+
+export async function dbMoveCard(cardId: string, toListId: string, toIndex: number, fromListTitle?: string, toListTitle?: string) {
+  await supabase.from('cards').update({ list_id: toListId, position: toIndex, updated_at: new Date().toISOString() }).eq('id', cardId);
+  const isComplete = toListTitle?.includes('เสร็จ') || toListTitle?.includes('โพส');
+  await supabase.from('activities').insert({
+    card_id: cardId, type: isComplete ? 'completed' : 'moved',
+    from_list_title: fromListTitle, to_list_title: toListTitle,
+  });
+  if (isComplete) {
+    await supabase.from('cards').update({ completed_at: new Date().toISOString() }).eq('id', cardId);
+  }
+}
+
+// --- Lists ---
 
 export async function dbAddList(boardId: string, title: string) {
   const { data: maxPos } = await supabase.from('lists').select('position').eq('board_id', boardId).order('position', { ascending: false }).limit(1).single();
@@ -160,12 +205,30 @@ export async function dbDeleteList(listId: string) {
   return supabase.from('lists').delete().eq('id', listId);
 }
 
-export async function dbAddComment(cardId: string, text: string, authorName: string) {
-  return supabase.from('comments').insert({ card_id: cardId, text, author_name: authorName }).select().single();
+// --- Comments ---
+
+export async function dbAddComment(cardId: string, text: string, authorName: string, imageUrl?: string) {
+  return supabase.from('comments').insert({
+    card_id: cardId, text, author_name: authorName, image_url: imageUrl || null,
+  }).select().single();
 }
+
+export async function dbUpdateComment(commentId: string, text: string) {
+  return supabase.from('comments').update({ text, updated_at: new Date().toISOString() }).eq('id', commentId);
+}
+
+export async function dbDeleteComment(commentId: string) {
+  return supabase.from('comments').delete().eq('id', commentId);
+}
+
+// --- Checklists ---
 
 export async function dbAddChecklist(cardId: string, title: string) {
   return supabase.from('checklists').insert({ card_id: cardId, title }).select().single();
+}
+
+export async function dbDeleteChecklist(checklistId: string) {
+  return supabase.from('checklists').delete().eq('id', checklistId);
 }
 
 export async function dbAddChecklistItem(checklistId: string, text: string) {
@@ -176,19 +239,23 @@ export async function dbToggleChecklistItem(itemId: string, completed: boolean) 
   return supabase.from('checklist_items').update({ completed }).eq('id', itemId);
 }
 
+export async function dbDeleteChecklistItem(itemId: string) {
+  return supabase.from('checklist_items').delete().eq('id', itemId);
+}
+
+// --- Labels & Members ---
+
 export async function dbToggleCardLabel(cardId: string, labelId: string, has: boolean) {
-  if (has) {
-    return supabase.from('card_labels').delete().eq('card_id', cardId).eq('label_id', labelId);
-  }
+  if (has) return supabase.from('card_labels').delete().eq('card_id', cardId).eq('label_id', labelId);
   return supabase.from('card_labels').insert({ card_id: cardId, label_id: labelId });
 }
 
 export async function dbToggleCardMember(cardId: string, memberId: string, has: boolean) {
-  if (has) {
-    return supabase.from('card_members').delete().eq('card_id', cardId).eq('member_id', memberId);
-  }
+  if (has) return supabase.from('card_members').delete().eq('card_id', cardId).eq('member_id', memberId);
   return supabase.from('card_members').insert({ card_id: cardId, member_id: memberId });
 }
+
+// --- Attachments ---
 
 export async function dbAddAttachment(cardId: string, name: string, url: string, type: string, size: number) {
   return supabase.from('attachments').insert({ card_id: cardId, name, url, type, size }).select().single();
@@ -204,6 +271,13 @@ export async function dbSetAttachmentAsCover(cardId: string, attachmentId: strin
   await supabase.from('cards').update({ cover_image: url }).eq('id', cardId);
 }
 
+export async function dbRemoveCover(cardId: string) {
+  await supabase.from('attachments').update({ is_cover: false }).eq('card_id', cardId);
+  await supabase.from('cards').update({ cover_image: null }).eq('id', cardId);
+}
+
+// --- File Upload ---
+
 export async function dbUploadFile(cardId: string, file: File): Promise<{ url: string; path: string } | null> {
   const ext = file.name.split('.').pop();
   const path = `attachments/${cardId}-${uuidv4()}.${ext}`;
@@ -211,13 +285,4 @@ export async function dbUploadFile(cardId: string, file: File): Promise<{ url: s
   if (error) return null;
   const { data } = supabase.storage.from('card-covers').getPublicUrl(path);
   return { url: data.publicUrl, path };
-}
-
-export async function dbUploadCoverImage(cardId: string, file: File): Promise<string | null> {
-  const ext = file.name.split('.').pop();
-  const path = `covers/${cardId}-${uuidv4()}.${ext}`;
-  const { error } = await supabase.storage.from('card-covers').upload(path, file);
-  if (error) return null;
-  const { data } = supabase.storage.from('card-covers').getPublicUrl(path);
-  return data.publicUrl;
 }

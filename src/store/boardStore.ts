@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import type { Board, Card, List, Label, Member } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { getCurrentProfile, getAllProfiles, type Profile } from '@/lib/auth';
 import {
   fetchBoard, dbAddCard, dbUpdateCard, dbDeleteCard, dbMoveCard,
   dbAddList, dbDeleteList, dbAddComment, dbUpdateComment, dbDeleteComment,
@@ -23,7 +24,13 @@ interface BoardState {
   showActivity: boolean;
   showAutomation: boolean;
   loading: boolean;
+  currentUser: Profile | null;
+  allUsers: Profile[];
+  onlineUserIds: string[];
 
+  loadAuth: () => Promise<void>;
+  setCurrentUser: (u: Profile | null) => void;
+  setOnlineUsers: (ids: string[]) => void;
   loadBoard: () => Promise<void>;
   getActiveBoard: () => Board | undefined;
   setActiveBoard: (id: string) => void;
@@ -78,6 +85,16 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   showActivity: false,
   showAutomation: false,
   loading: true,
+  currentUser: null,
+  allUsers: [],
+  onlineUserIds: [],
+
+  loadAuth: async () => {
+    const [profile, allProfiles] = await Promise.all([getCurrentProfile(), getAllProfiles()]);
+    set({ currentUser: profile, allUsers: allProfiles });
+  },
+  setCurrentUser: (u) => set({ currentUser: u }),
+  setOnlineUsers: (ids) => set({ onlineUserIds: ids }),
 
   loadBoard: async () => {
     set({ loading: true });

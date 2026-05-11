@@ -1,7 +1,9 @@
 'use client';
 
-import { Search, Sparkles, Bell, Star, LayoutGrid, BarChart3, Calendar, Zap, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { Search, Sparkles, Bell, Star, LayoutGrid, BarChart3, Calendar, Zap, Clock, LogOut } from 'lucide-react';
 import { useBoardStore } from '@/store/boardStore';
+import { signOut } from '@/lib/auth';
 
 export default function Header() {
   const {
@@ -9,8 +11,13 @@ export default function Header() {
     toggleAI, showAI, toggleDashboard, showDashboard,
     activeView, setActiveView, toggleActivity, showActivity,
     toggleAutomation,
+    currentUser, allUsers, onlineUserIds,
   } = useBoardStore();
   const board = boards.find(b => b.id === activeBoardId);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const onlineUsers = allUsers.filter(u => onlineUserIds.includes(u.id));
+  const offlineUsers = allUsers.filter(u => !onlineUserIds.includes(u.id));
 
   return (
     <header className="h-14 bg-[#1d2125]/90 backdrop-blur border-b border-white/10 flex items-center px-4 gap-2 flex-shrink-0">
@@ -54,21 +61,31 @@ export default function Header() {
 
       <div className="flex-1" />
 
-      {/* Members */}
-      {board && (
-        <div className="hidden md:flex -space-x-1.5 mr-1">
-          {board.members.slice(0, 4).map(m => (
-            <div
-              key={m.id}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-[#1d2125]"
-              style={{ backgroundColor: m.color }}
-              title={m.name}
-            >
-              {m.initials}
-            </div>
-          ))}
+      {/* Real users with online status */}
+      <div className="hidden md:flex items-center gap-2 mr-1">
+        <div className="flex -space-x-1.5">
+          {[...onlineUsers, ...offlineUsers].slice(0, 5).map(u => {
+            const isOnline = onlineUserIds.includes(u.id);
+            return (
+              <div key={u.id} className="relative" title={`${u.name}${isOnline ? ' (online)' : ''}`}>
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-[#1d2125] ${!isOnline ? 'opacity-50' : ''}`}
+                  style={{ backgroundColor: u.color }}
+                >
+                  {u.initials}
+                </div>
+                {isOnline && (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full ring-2 ring-[#1d2125]" />
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
+        {allUsers.length > 5 && (
+          <span className="text-xs text-gray-400">+{allUsers.length - 5}</span>
+        )}
+        <span className="text-xs text-green-400 ml-1">{onlineUserIds.length} online</span>
+      </div>
 
       {/* Search */}
       <div className="relative hidden sm:block">
@@ -132,6 +149,37 @@ export default function Header() {
         <Sparkles size={14} />
         <span className="hidden sm:inline">AI</span>
       </button>
+
+      {/* Current user menu */}
+      {currentUser && (
+        <div className="relative">
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ring-2 ring-white/20 hover:ring-white/40"
+            style={{ backgroundColor: currentUser.color }}
+            title={currentUser.name}
+          >
+            {currentUser.initials}
+          </button>
+          {showUserMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+              <div className="absolute right-0 top-10 z-50 w-56 bg-[#282e33] rounded-xl shadow-2xl border border-white/10 p-2">
+                <div className="px-3 py-2 border-b border-white/10 mb-1">
+                  <p className="text-sm font-medium text-white">{currentUser.name}</p>
+                  <p className="text-xs text-gray-400">{currentUser.email}</p>
+                </div>
+                <button
+                  onClick={async () => { await signOut(); window.location.reload(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-white/5 rounded-lg"
+                >
+                  <LogOut size={14} /> ออกจากระบบ
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </header>
   );
 }

@@ -61,7 +61,8 @@ function ModalContent({ card, listTitle, board, onClose }: { card: Card; listTit
 
   const handleAddComment = async () => {
     if (!commentText.trim() && !commentImage) return;
-    store.addComment(card.id, commentText.trim() || '(รูปภาพ)', 'คุณ', commentImage || undefined);
+    const authorName = store.currentUser?.name || 'คุณ';
+    store.addComment(card.id, commentText.trim() || '(รูปภาพ)', authorName, commentImage || undefined);
     setCommentText('');
     setCommentImage(null);
   };
@@ -210,14 +211,22 @@ function ModalContent({ card, listTitle, board, onClose }: { card: Card; listTit
         </DropdownPanel>}
 
         {showMembers && <DropdownPanel title="สมาชิก" onClose={() => setShowMembers(false)}>
-          {board.members.map((m: Member) => (
-            <label key={m.id} className="flex items-center gap-2 py-1.5 px-2 hover:bg-white/5 rounded cursor-pointer">
-              <input type="checkbox" checked={card.members.some(cm => cm.id === m.id)}
-                onChange={() => store.toggleCardMember(card.id, m)} className="rounded" />
-              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style={{ backgroundColor: m.color }}>{m.initials}</div>
-              <span className="text-sm text-gray-300">{m.name}</span>
-            </label>
-          ))}
+          {store.allUsers.map((u) => {
+            const memberForm: Member = { id: u.id, name: u.name, initials: u.initials, color: u.color };
+            const isOnline = store.onlineUserIds.includes(u.id);
+            return (
+              <label key={u.id} className="flex items-center gap-2 py-1.5 px-2 hover:bg-white/5 rounded cursor-pointer">
+                <input type="checkbox" checked={card.members.some(cm => cm.id === u.id)}
+                  onChange={() => store.toggleCardMember(card.id, memberForm)} className="rounded" />
+                <div className="relative">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style={{ backgroundColor: u.color }}>{u.initials}</div>
+                  {isOnline && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full ring-2 ring-[#282e33]" />}
+                </div>
+                <span className="text-sm text-gray-300">{u.name}</span>
+                {isOnline && <span className="text-[10px] text-green-400 ml-auto">online</span>}
+              </label>
+            );
+          })}
         </DropdownPanel>}
 
         {showMoveCard && <DropdownPanel title="ย้ายไปยัง List" onClose={() => setShowMoveCard(false)}>

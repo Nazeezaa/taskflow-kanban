@@ -9,9 +9,18 @@ import AIAssistant from '@/components/AIAssistant';
 import Dashboard from '@/components/Dashboard';
 import ActivityFeed from '@/components/ActivityFeed';
 import AutomationRules from '@/components/AutomationRules';
+import AuthWrapper from '@/components/AuthWrapper';
 import { useBoardStore } from '@/store/boardStore';
 
 export default function Home() {
+  return (
+    <AuthWrapper>
+      <HomeContent />
+    </AuthWrapper>
+  );
+}
+
+function HomeContent() {
   const {
     selectedCardId, showAI, activeView, loading,
     showActivity, toggleActivity,

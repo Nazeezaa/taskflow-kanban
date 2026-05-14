@@ -86,18 +86,6 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
         <div className="p-5 overflow-y-auto flex-1">
           {!result && (
             <>
-              {/* Instructions */}
-              <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 mb-4">
-                <p className="text-sm text-blue-200 font-medium mb-1">📤 วิธี export จาก Trello</p>
-                <ol className="text-xs text-blue-100/80 space-y-1 list-decimal pl-4">
-                  <li>เปิด Trello board → คลิก "Show menu" มุมขวาบน</li>
-                  <li>"..." → "Print, export, and share" → "Export as JSON"</li>
-                  <li>✅ <b>Workspace ต้องเป็น Premium</b> (ฟรี 14 วัน) ถึงจะดึง attachments + archived ได้ครบ</li>
-                  <li>Save ไฟล์ .json → ลากมาวางด้านล่าง</li>
-                </ol>
-              </div>
-
-              {/* File drop zone */}
               <input
                 ref={fileRef}
                 type="file"
@@ -105,17 +93,46 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
                 onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
                 className="hidden"
               />
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={parsing || importing}
-                className="w-full border-2 border-dashed border-white/15 hover:border-blue-500/50 hover:bg-blue-500/5 rounded-xl p-6 text-center transition-all disabled:opacity-50"
-              >
-                <Upload size={28} className="mx-auto text-gray-400 mb-2" />
-                <p className="text-sm text-gray-300 font-medium">
-                  {file ? file.name : 'คลิกเพื่อเลือกไฟล์ JSON'}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">หรือลากไฟล์มาวาง</p>
-              </button>
+
+              {/* Instructions — show only before file is loaded */}
+              {!preview && (
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 mb-3">
+                  <p className="text-sm text-blue-200 font-medium mb-1">📤 วิธี export จาก Trello</p>
+                  <ol className="text-xs text-blue-100/80 space-y-1 list-decimal pl-4">
+                    <li>Trello board → "Show menu" → "..." → "Print, export, and share"</li>
+                    <li>กด "Export as JSON" → Save ไฟล์ .json</li>
+                  </ol>
+                </div>
+              )}
+
+              {/* File drop zone — compact when file loaded */}
+              {!preview ? (
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  disabled={parsing || importing}
+                  className="w-full border-2 border-dashed border-white/15 hover:border-blue-500/50 hover:bg-blue-500/5 rounded-xl p-5 text-center transition-all disabled:opacity-50"
+                >
+                  <Upload size={24} className="mx-auto text-gray-400 mb-1.5" />
+                  <p className="text-sm text-gray-300 font-medium">
+                    {file ? file.name : 'คลิกเพื่อเลือกไฟล์ JSON'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">หรือลากไฟล์มาวาง</p>
+                </button>
+              ) : (
+                <div className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 mb-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileJson size={14} className="text-blue-400 flex-shrink-0" />
+                    <span className="text-xs text-gray-300 truncate">{file?.name}</span>
+                  </div>
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    disabled={importing}
+                    className="text-xs text-blue-400 hover:text-blue-300 flex-shrink-0 ml-2"
+                  >
+                    เปลี่ยน
+                  </button>
+                </div>
+              )}
 
               {parsing && (
                 <div className="mt-3 flex items-center gap-2 text-sm text-gray-400">
@@ -129,13 +146,13 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
                 </div>
               )}
 
-              {/* Preview */}
+              {/* Preview — compact */}
               {preview && !importing && (
-                <div className="mt-4 bg-white/5 rounded-lg p-4 border border-white/10">
-                  <p className="text-xs text-gray-400 mb-2 font-medium">พบในไฟล์:</p>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="mt-3">
+                  <p className="text-xs text-gray-400 mb-1.5 font-medium">พบในไฟล์:</p>
+                  <div className="grid grid-cols-3 gap-1.5 text-sm">
                     <Stat label="Lists" value={preview.lists} />
-                    <Stat label="Cards (รวม archive)" value={preview.cards} highlight={preview.archived > 0 ? `${preview.archived} archived` : undefined} />
+                    <Stat label="Cards" value={preview.cards} highlight={preview.archived > 0 ? `${preview.archived} archive` : undefined} />
                     <Stat label="Labels" value={preview.labels} />
                     <Stat label="Checklists" value={preview.checklists} />
                     <Stat label="Comments" value={preview.actions} />
@@ -143,7 +160,7 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
                   </div>
                   <button
                     onClick={handleImport}
-                    className="mt-4 w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium rounded-lg py-2.5 transition-all"
+                    className="mt-3 w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium rounded-lg py-2.5 transition-all"
                   >
                     Import ทั้งหมด
                   </button>
@@ -222,10 +239,10 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
 
 function Stat({ label, value, highlight }: { label: string; value: number; highlight?: string }) {
   return (
-    <div className="bg-white/5 rounded px-3 py-2">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-lg font-semibold text-white">{value}</p>
-      {highlight && <p className="text-[10px] text-yellow-400">{highlight}</p>}
+    <div className="bg-white/5 rounded px-2 py-1.5">
+      <p className="text-[10px] text-gray-500 leading-tight">{label}</p>
+      <p className="text-base font-semibold text-white leading-tight mt-0.5">{value}</p>
+      {highlight && <p className="text-[9px] text-yellow-400 leading-tight">{highlight}</p>}
     </div>
   );
 }

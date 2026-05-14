@@ -13,6 +13,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { isInternalCall } from '@/lib/internal-auth';
 import { v4 as uuidv4 } from 'uuid';
 
 export const runtime = 'nodejs';
@@ -44,10 +45,12 @@ function normalize(s: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  // Auth check — require user to be signed in (use anon-key client to verify)
+  // Auth: accept EITHER user bearer token OR internal API key (for trusted server-to-server calls)
   const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json({ error: 'unauthorized — missing bearer token' }, { status: 401 });
+  const hasUserToken = authHeader?.startsWith('Bearer ');
+  const hasInternalKey = isInternalCall(req);
+  if (!hasUserToken && !hasInternalKey) {
+    return NextResponse.json({ error: 'unauthorized — need bearer token or x-internal-key' }, { status: 401 });
   }
 
   let body: any;

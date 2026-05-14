@@ -11,6 +11,14 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     let mounted = true;
+    // Force auth check to never block UI more than 5 seconds
+    const timeout = setTimeout(() => {
+      if (mounted) {
+        console.warn('[AuthWrapper] auth check timed out — showing UI anyway');
+        setChecking(false);
+      }
+    }, 5000);
+
     (async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -20,6 +28,7 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
       } catch (err) {
         console.error('[AuthWrapper] init failed:', err);
       } finally {
+        clearTimeout(timeout);
         if (mounted) setChecking(false);
       }
     })();

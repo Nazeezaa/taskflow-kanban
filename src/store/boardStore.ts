@@ -99,12 +99,17 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   loadBoard: async () => {
     const hasBoard = get().boards.length > 0;
     if (!hasBoard) set({ loading: true });
+    // Hard timeout — never leave UI loading forever
+    const timeoutP = new Promise<null>((resolve) => setTimeout(() => {
+      console.warn('[loadBoard] fetchBoard timed out after 8s');
+      resolve(null);
+    }, 8000));
     try {
-      const board = await fetchBoard();
+      const board = await Promise.race([fetchBoard(), timeoutP]);
       if (board) {
         set({ boards: [board], activeBoardId: board.id, loading: false });
       } else {
-        console.error('[loadBoard] fetchBoard returned null');
+        console.error('[loadBoard] fetchBoard returned null or timed out');
         set({ loading: false });
       }
     } catch (err) {

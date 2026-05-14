@@ -34,7 +34,7 @@ function HomeContent() {
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#0d1117]">
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center animate-pulse">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
               <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
@@ -42,6 +42,12 @@ function HomeContent() {
             </svg>
           </div>
           <p className="text-gray-400 text-sm">กำลังโหลด TaskFlow...</p>
+          <button
+            onClick={() => loadBoard()}
+            className="mt-2 text-xs text-blue-400 hover:text-blue-300 underline"
+          >
+            โหลดนานเกินไป? กดที่นี่เพื่อโหลดใหม่
+          </button>
         </div>
       </div>
     );

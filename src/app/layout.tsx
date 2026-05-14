@@ -36,10 +36,15 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
+              // Aggressive cleanup of any stale service workers / caches
+              // (Temporarily disabled SW until we re-verify it doesn't cause stale state)
               if ('serviceWorker' in navigator) {
-                window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js').catch(() => {});
+                navigator.serviceWorker.getRegistrations().then(regs => {
+                  regs.forEach(r => r.unregister());
                 });
+              }
+              if ('caches' in window) {
+                caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
               }
             `,
           }}

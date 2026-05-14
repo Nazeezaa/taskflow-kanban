@@ -14,6 +14,7 @@
  */
 
 import { supabase } from './supabase';
+import { v4 as uuidv4 } from 'uuid';
 
 const BOARD_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -226,23 +227,30 @@ export async function importTrelloJSON(
     if (c.trello_id) existingTrelloIds.add(c.trello_id);
   });
 
+  // ─────────────────────────────────────────────
+  // Build all card rows + relationships client-side first, then bulk insert
+  // (10-50× faster than per-row inserts for large boards)
+  // ─────────────────────────────────────────────
+  const cardRows: any[] = [];
+  const cardLabelRows: { card_id: string; label_id: string }[] = [];
+  const attachmentRows: any[] = [];
+  const cardCoverUpdates: { id: string; cover_image: string }[] = [];
+
   for (let i = 0; i < cards.length; i++) {
     const tCard = cards[i];
-    onProgress?.({ step: 'cards', current: i + 1, total: cards.length });
-
     if (existingTrelloIds.has(tCard.id)) {
       result.cards.skipped++;
       continue;
     }
-
     const taskflowListId = listIdMap.get(tCard.idList);
     if (!taskflowListId) {
-      // List was closed in Trello → skip this card
       result.cards.skipped++;
       continue;
     }
 
-    const cardInsert: any = {
+    const newCardId = uuidv4();
+    const cardRow: any = {
+      id: newCardId,
       list_id: taskflowListId,
       title: tCard.name || '(no title)',
       description: tCard.desc || '',
@@ -252,99 +260,127 @@ export async function importTrelloJSON(
       archived: !!tCard.closed,
       trello_id: tCard.id,
     };
-
-    // Trello cover color (if no attachment cover)
     if (tCard.cover?.color && !tCard.cover.idAttachment) {
-      cardInsert.cover_color = TRELLO_COLOR_MAP[tCard.cover.color] || null;
+      cardRow.cover_color = TRELLO_COLOR_MAP[tCard.cover.color] || null;
     }
-
     if (tCard.dueComplete && tCard.due) {
-      cardInsert.completed_at = tCard.due;
+      cardRow.completed_at = tCard.due;
     }
 
-    const { data: newCard, error } = await supabase
-      .from('cards').insert(cardInsert).select().single();
-
-    if (error || !newCard) {
-      result.errors.push(`card "${tCard.name}": ${error?.message || 'unknown'}`);
-      continue;
-    }
-
-    cardIdMap.set(tCard.id, newCard.id);
-    result.cards.created++;
+    cardRows.push(cardRow);
+    cardIdMap.set(tCard.id, newCardId);
     if (tCard.closed) result.cards.archived++;
 
-    // Card labels
+    // Labels
     if (tCard.idLabels?.length) {
-      const labelLinks = tCard.idLabels
-        .map((tlid) => labelIdMap.get(tlid))
-        .filter(Boolean)
-        .map((labelId) => ({ card_id: newCard.id, label_id: labelId as string }));
-      if (labelLinks.length) {
-        await supabase.from('card_labels').insert(labelLinks);
+      for (const tlid of tCard.idLabels) {
+        const labelId = labelIdMap.get(tlid);
+        if (labelId) cardLabelRows.push({ card_id: newCardId, label_id: labelId });
       }
     }
 
-    // Card attachments — store URL + name (don't re-host files; user can click to open)
-    // Trello attachment URLs for uploaded files require Trello auth, but most modern boards
-    // serve them as public-ish trello-attachments.s3 URLs. Link attachments work for everyone.
+    // Attachments
     if (tCard.attachments?.length) {
-      const atts = tCard.attachments
-        .filter((a) => a.url)
-        .map((a) => ({
-          card_id: newCard.id,
-          name: a.name || a.url!.split('/').pop() || 'attachment',
-          url: a.url!,
-          type: a.mimeType || guessMimeFromUrl(a.url!),
+      for (const a of tCard.attachments) {
+        if (!a.url) continue;
+        const isCover = tCard.idAttachmentCover === a.id || tCard.cover?.idAttachment === a.id;
+        const mime = a.mimeType || guessMimeFromUrl(a.url);
+        attachmentRows.push({
+          card_id: newCardId,
+          name: a.name || a.url.split('/').pop() || 'attachment',
+          url: a.url,
+          type: mime,
           size: a.bytes || null,
-          is_cover: tCard.idAttachmentCover === a.id || tCard.cover?.idAttachment === a.id,
+          is_cover: isCover,
           created_at: a.date || new Date().toISOString(),
-        }));
-      if (atts.length) {
-        const { error } = await supabase.from('attachments').insert(atts);
-        if (error) result.errors.push(`attachments for "${tCard.name}": ${error.message}`);
-        else result.attachments += atts.length;
-
-        // Set cover_image on card if any attachment is cover + is image
-        const cover = atts.find(
-          (a) => a.is_cover && (a.type?.startsWith('image/') || isImageUrl(a.url))
-        );
-        if (cover) {
-          await supabase.from('cards').update({ cover_image: cover.url }).eq('id', newCard.id);
+        });
+        if (isCover && (mime?.startsWith('image/') || isImageUrl(a.url))) {
+          cardCoverUpdates.push({ id: newCardId, cover_image: a.url });
         }
       }
     }
   }
 
+  // Bulk insert cards in chunks of 100 (Supabase row limit safety)
+  onProgress?.({ step: 'cards', current: 0, total: cardRows.length });
+  for (let i = 0; i < cardRows.length; i += 100) {
+    const chunk = cardRows.slice(i, i + 100);
+    const { error } = await supabase.from('cards').insert(chunk);
+    if (error) {
+      result.errors.push(`cards batch ${i / 100 + 1}: ${error.message}`);
+    } else {
+      result.cards.created += chunk.length;
+    }
+    onProgress?.({ step: 'cards', current: Math.min(i + 100, cardRows.length), total: cardRows.length });
+  }
+
+  // Bulk insert card_labels
+  if (cardLabelRows.length) {
+    for (let i = 0; i < cardLabelRows.length; i += 500) {
+      const chunk = cardLabelRows.slice(i, i + 500);
+      const { error } = await supabase.from('card_labels').insert(chunk);
+      if (error) result.errors.push(`card_labels batch: ${error.message}`);
+    }
+  }
+
+  // Bulk insert attachments
+  if (attachmentRows.length) {
+    for (let i = 0; i < attachmentRows.length; i += 200) {
+      const chunk = attachmentRows.slice(i, i + 200);
+      const { error } = await supabase.from('attachments').insert(chunk);
+      if (error) result.errors.push(`attachments batch: ${error.message}`);
+      else result.attachments += chunk.length;
+    }
+  }
+
+  // Update card covers (only those with image attachment cover)
+  if (cardCoverUpdates.length) {
+    // No batch update in Supabase — do these one by one but only the small subset that has cover
+    for (const u of cardCoverUpdates) {
+      await supabase.from('cards').update({ cover_image: u.cover_image }).eq('id', u.id);
+    }
+  }
+
   // ─────────────────────────────────────────────
-  // 4. CHECKLISTS + ITEMS
+  // 4. CHECKLISTS + ITEMS — bulk insert
   // ─────────────────────────────────────────────
   if (data.checklists?.length) {
     onProgress?.({ step: 'checklists' });
+    const checklistRows: any[] = [];
+    const itemRows: any[] = [];
+
     for (const tCl of data.checklists) {
       const taskflowCardId = cardIdMap.get(tCl.idCard);
       if (!taskflowCardId) continue;
-      const { data: newCl, error } = await supabase
-        .from('checklists')
-        .insert({ card_id: taskflowCardId, title: tCl.name, position: tCl.pos || 0 })
-        .select().single();
-      if (error || !newCl) {
-        result.errors.push(`checklist "${tCl.name}": ${error?.message}`);
-        continue;
-      }
-      result.checklists++;
-
+      const newClId = uuidv4();
+      checklistRows.push({
+        id: newClId, card_id: taskflowCardId, title: tCl.name, position: tCl.pos || 0,
+      });
       if (tCl.checkItems?.length) {
-        const items = tCl.checkItems.map((ci, idx) => ({
-          checklist_id: newCl.id,
-          text: ci.name,
-          completed: ci.state === 'complete',
-          position: ci.pos || idx,
-        }));
-        const { error: itemErr } = await supabase.from('checklist_items').insert(items);
-        if (itemErr) result.errors.push(`checklist items: ${itemErr.message}`);
-        else result.checklistItems += items.length;
+        tCl.checkItems.forEach((ci, idx) => {
+          itemRows.push({
+            checklist_id: newClId,
+            text: ci.name,
+            completed: ci.state === 'complete',
+            position: ci.pos || idx,
+          });
+        });
       }
+    }
+
+    // Bulk insert checklists in chunks
+    for (let i = 0; i < checklistRows.length; i += 100) {
+      const chunk = checklistRows.slice(i, i + 100);
+      const { error } = await supabase.from('checklists').insert(chunk);
+      if (error) result.errors.push(`checklists batch: ${error.message}`);
+      else result.checklists += chunk.length;
+    }
+    // Bulk insert items in chunks
+    for (let i = 0; i < itemRows.length; i += 200) {
+      const chunk = itemRows.slice(i, i + 200);
+      const { error } = await supabase.from('checklist_items').insert(chunk);
+      if (error) result.errors.push(`checklist items batch: ${error.message}`);
+      else result.checklistItems += chunk.length;
     }
   }
 

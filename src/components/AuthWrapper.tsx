@@ -12,11 +12,16 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await loadAuth();
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await loadAuth().catch((err) => console.error('[AuthWrapper] loadAuth failed:', err));
+        }
+      } catch (err) {
+        console.error('[AuthWrapper] init failed:', err);
+      } finally {
+        if (mounted) setChecking(false);
       }
-      if (mounted) setChecking(false);
     })();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {

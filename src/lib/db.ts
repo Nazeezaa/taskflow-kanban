@@ -4,41 +4,52 @@ import type { Board, Card, List, Label, Member, Checklist, ChecklistItem, Commen
 
 const BOARD_ID = '00000000-0000-0000-0000-000000000001';
 
+// Helper: never throw on optional table errors — return [] so missing tables don't break the board
+async function safeSelect<T = any>(query: any): Promise<T[]> {
+  try {
+    const { data, error } = await query;
+    if (error) {
+      console.warn('[fetchBoard] query error:', error.message);
+      return [];
+    }
+    return (data || []) as T[];
+  } catch (e) {
+    console.warn('[fetchBoard] query threw:', e);
+    return [];
+  }
+}
+
 export async function fetchBoard(): Promise<Board | null> {
-  const [
-    { data: board },
-    { data: lists },
-    { data: labels },
-    { data: members },
-  ] = await Promise.all([
-    supabase.from('boards').select('*').eq('id', BOARD_ID).single(),
+  // Core tables — needed to render anything
+  const [boardRes, listsRes, labelsRes, membersRes] = await Promise.all([
+    supabase.from('boards').select('*').eq('id', BOARD_ID).maybeSingle(),
     supabase.from('lists').select('*').eq('board_id', BOARD_ID).order('position'),
     supabase.from('labels').select('*').eq('board_id', BOARD_ID),
     supabase.from('members').select('*').eq('board_id', BOARD_ID),
   ]);
 
+  const board = boardRes.data;
+  const lists = listsRes.data;
+  const labels = labelsRes.data;
+  const members = membersRes.data;
+
+  if (boardRes.error) console.error('[fetchBoard] boards error:', boardRes.error.message);
+  if (listsRes.error) console.error('[fetchBoard] lists error:', listsRes.error.message);
+
   if (!board || !lists) return null;
 
   const listIds = lists.map((l: any) => l.id);
 
-  const [
-    { data: cards },
-    { data: cardLabels },
-    { data: cardMembers },
-    { data: checklists },
-    { data: checklistItems },
-    { data: comments },
-    { data: activities },
-    { data: attachments },
-  ] = await Promise.all([
-    supabase.from('cards').select('*').in('list_id', listIds).order('position'),
-    supabase.from('card_labels').select('*'),
-    supabase.from('card_members').select('*'),
-    supabase.from('checklists').select('*').order('position'),
-    supabase.from('checklist_items').select('*').order('position'),
-    supabase.from('comments').select('*').order('created_at', { ascending: true }),
-    supabase.from('activities').select('*').order('timestamp', { ascending: true }),
-    supabase.from('attachments').select('*').order('created_at', { ascending: false }),
+  // Use safeSelect for optional tables (attachments may not exist, etc.)
+  const [cards, cardLabels, cardMembers, checklists, checklistItems, comments, activities, attachments] = await Promise.all([
+    safeSelect(supabase.from('cards').select('*').in('list_id', listIds).order('position')),
+    safeSelect(supabase.from('card_labels').select('*')),
+    safeSelect(supabase.from('card_members').select('*')),
+    safeSelect(supabase.from('checklists').select('*').order('position')),
+    safeSelect(supabase.from('checklist_items').select('*').order('position')),
+    safeSelect(supabase.from('comments').select('*').order('created_at', { ascending: true })),
+    safeSelect(supabase.from('activities').select('*').order('timestamp', { ascending: true })),
+    safeSelect(supabase.from('attachments').select('*').order('created_at', { ascending: false })),
   ]);
 
   const labelMap = new Map((labels || []).map((l: any) => [l.id, { id: l.id, name: l.name, color: l.color }]));

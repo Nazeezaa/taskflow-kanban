@@ -97,13 +97,18 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   setOnlineUsers: (ids) => set({ onlineUserIds: ids }),
 
   loadBoard: async () => {
-    // Only show loading screen on initial load (when no board yet)
     const hasBoard = get().boards.length > 0;
     if (!hasBoard) set({ loading: true });
-    const board = await fetchBoard();
-    if (board) {
-      set({ boards: [board], activeBoardId: board.id, loading: false });
-    } else {
+    try {
+      const board = await fetchBoard();
+      if (board) {
+        set({ boards: [board], activeBoardId: board.id, loading: false });
+      } else {
+        console.error('[loadBoard] fetchBoard returned null');
+        set({ loading: false });
+      }
+    } catch (err) {
+      console.error('[loadBoard] error:', err);
       set({ loading: false });
     }
   },

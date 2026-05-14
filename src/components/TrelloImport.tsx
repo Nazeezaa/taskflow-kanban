@@ -63,11 +63,11 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
       <div className="absolute inset-0 bg-black/60 animate-backdrop-in" onClick={onClose} />
-      <div className="relative bg-[#1d2125] rounded-2xl w-full max-w-lg shadow-2xl animate-modal-in border border-white/10">
+      <div className="relative bg-[#1d2125] rounded-2xl w-full max-w-lg shadow-2xl animate-modal-in border border-white/10 max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-white/10">
+        <div className="flex items-center justify-between p-5 border-b border-white/10 flex-shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
               <FileJson size={18} className="text-white" />
@@ -82,8 +82,8 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-5">
+        {/* Body — scrollable */}
+        <div className="p-5 overflow-y-auto flex-1">
           {!result && (
             <>
               {/* Instructions */}

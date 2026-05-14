@@ -16,24 +16,15 @@ body {
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.15);
   border-radius: 3px;
 }
+*::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
 
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
+/* Buttons */
 .sidebar-btn {
   display: flex;
   align-items: center;
@@ -44,17 +35,163 @@ body {
   color: #9ca3af;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 6px;
-  transition: background 0.15s;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
   border: none;
   cursor: pointer;
   text-align: left;
 }
-
 .sidebar-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #d1d5db;
+  transform: translateX(2px);
+}
+.sidebar-btn:active { transform: translateX(0) scale(0.98); }
+
+input[type="checkbox"] { accent-color: #3b82f6; }
+
+/* === SMOOTH ANIMATIONS === */
+
+/* Fade + scale in (for modals) */
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-modal-in { animation: modalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Backdrop fade */
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-backdrop-in { animation: backdropIn 0.2s ease-out; }
+
+/* Card mount */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-card-in { animation: cardIn 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Slide in from right (panels) */
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-right { animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Slide in from bottom */
+@keyframes slideInBottom {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-bottom { animation: slideInBottom 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Pulse glow (online indicator) */
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+}
+.animate-pulse-glow { animation: pulseGlow 2s ease-in-out infinite; }
+
+/* Shimmer for loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
 }
 
-input[type="checkbox"] {
-  accent-color: #3b82f6;
+/* Smooth hover for cards */
+.kanban-card {
+  transition: transform 0.16s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.16s cubic-bezier(0.4, 0, 0.2, 1),
+              background 0.16s ease;
+  will-change: transform;
+}
+.kanban-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.kanban-card:active { transform: translateY(0) scale(0.99); }
+
+/* Button press effect */
+.press {
+  transition: transform 0.1s ease;
+}
+.press:active { transform: scale(0.96); }
+
+/* List column hover */
+.kanban-list {
+  transition: background 0.2s ease;
+}
+
+/* Drop zone highlight */
+.drop-zone-active {
+  background: rgba(59, 130, 246, 0.08);
+  outline: 2px dashed rgba(59, 130, 246, 0.3);
+  outline-offset: -8px;
+}
+
+/* Smooth all interactions */
+button, a, input, textarea, select {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+/* Focus rings smooth */
+*:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Dropdown panel */
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-dropdown-in {
+  animation: dropdownIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top;
+}
+
+/* Spinner */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  border: 2px solid rgba(255,255,255,0.1);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Toast / notification slide */
+@keyframes toastIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-toast { animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Smooth gradient backgrounds */
+.gradient-purple-blue {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+/* Glass effect */
+.glass {
+  background: rgba(22, 27, 34, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Subtle hover lift */
+.hover-lift {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }

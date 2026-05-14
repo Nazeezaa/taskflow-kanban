@@ -31,7 +31,7 @@ export async function fetchBoard(): Promise<Board | null> {
     { data: activities },
     { data: attachments },
   ] = await Promise.all([
-    supabase.from('cards').select('*').in('list_id', listIds).eq('archived', false).order('position'),
+    supabase.from('cards').select('*').in('list_id', listIds).order('position'),
     supabase.from('card_labels').select('*'),
     supabase.from('card_members').select('*'),
     supabase.from('checklists').select('*').order('position'),
@@ -55,7 +55,7 @@ export async function fetchBoard(): Promise<Board | null> {
     cardChecklists.set(cl.card_id, arr);
   }
 
-  const builtCards: Card[] = (cards || []).map((c: any) => ({
+  const builtCards: Card[] = (cards || []).filter((c: any) => !c.archived).map((c: any) => ({
     id: c.id,
     title: c.title,
     description: c.description || '',
@@ -108,7 +108,7 @@ export async function fetchBoard(): Promise<Board | null> {
 // --- Card CRUD ---
 
 export async function dbAddCard(listId: string, title: string) {
-  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', listId).order('position', { ascending: false }).limit(1).single();
+  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', listId).order('position', { ascending: false }).limit(1).maybeSingle();
   const pos = (maxPos?.position ?? -1) + 1;
   const { data: card } = await supabase.from('cards').insert({ list_id: listId, title, position: pos }).select().single();
   if (card) {
@@ -140,7 +140,7 @@ export async function dbArchiveCard(cardId: string) {
 }
 
 export async function dbCopyCard(card: Card, toListId: string) {
-  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', toListId).order('position', { ascending: false }).limit(1).single();
+  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', toListId).order('position', { ascending: false }).limit(1).maybeSingle();
   const pos = (maxPos?.position ?? -1) + 1;
   const { data: newCard } = await supabase.from('cards').insert({
     list_id: toListId, title: card.title + ' (copy)', description: card.description,
@@ -168,7 +168,7 @@ export async function dbCopyCard(card: Card, toListId: string) {
 }
 
 export async function dbMoveCardToList(cardId: string, toListId: string, fromListTitle: string, toListTitle: string) {
-  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', toListId).order('position', { ascending: false }).limit(1).single();
+  const { data: maxPos } = await supabase.from('cards').select('position').eq('list_id', toListId).order('position', { ascending: false }).limit(1).maybeSingle();
   const pos = (maxPos?.position ?? -1) + 1;
   await supabase.from('cards').update({ list_id: toListId, position: pos, updated_at: new Date().toISOString() }).eq('id', cardId);
   const isComplete = toListTitle.includes('เสร็จ') || toListTitle.includes('โพส');
@@ -196,7 +196,7 @@ export async function dbMoveCard(cardId: string, toListId: string, toIndex: numb
 // --- Lists ---
 
 export async function dbAddList(boardId: string, title: string) {
-  const { data: maxPos } = await supabase.from('lists').select('position').eq('board_id', boardId).order('position', { ascending: false }).limit(1).single();
+  const { data: maxPos } = await supabase.from('lists').select('position').eq('board_id', boardId).order('position', { ascending: false }).limit(1).maybeSingle();
   const pos = (maxPos?.position ?? -1) + 1;
   return supabase.from('lists').insert({ board_id: boardId, title, position: pos }).select().single();
 }

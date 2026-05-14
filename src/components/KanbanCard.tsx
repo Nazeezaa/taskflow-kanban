@@ -31,7 +31,7 @@ export default function KanbanCard({ card }: { card: Card }) {
       {...attributes}
       {...listeners}
       onClick={() => setSelectedCard(card.id)}
-      className="bg-[#22272b] rounded-lg shadow-md cursor-pointer hover:ring-2 hover:ring-blue-500/50 transition-all group mb-2"
+      className="kanban-card animate-card-in bg-[#22272b] rounded-lg shadow-md cursor-pointer hover:ring-2 hover:ring-blue-500/50 group mb-2"
     >
       {card.coverColor && (
         <div className="h-8 rounded-t-lg" style={{ backgroundColor: card.coverColor }} />

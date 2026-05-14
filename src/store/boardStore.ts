@@ -97,7 +97,9 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   setOnlineUsers: (ids) => set({ onlineUserIds: ids }),
 
   loadBoard: async () => {
-    set({ loading: true });
+    // Only show loading screen on initial load (when no board yet)
+    const hasBoard = get().boards.length > 0;
+    if (!hasBoard) set({ loading: true });
     const board = await fetchBoard();
     if (board) {
       set({ boards: [board], activeBoardId: board.id, loading: false });
@@ -131,6 +133,20 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
 
   // --- Cards ---
   addCard: async (listId, title) => {
+    // Optimistic - add placeholder card instantly so UI feels snappy
+    const tempId = `temp-${uuidv4()}`;
+    const now = new Date().toISOString();
+    const tempCard: Card = {
+      id: tempId, title, description: '', listId, position: 9999,
+      labels: [], members: [], checklists: [], comments: [], attachments: [], activities: [],
+      isWatching: false, archived: false, createdAt: now, updatedAt: now,
+    };
+    set(s => ({
+      boards: s.boards.map(b => ({
+        ...b,
+        lists: b.lists.map(l => l.id === listId ? { ...l, cards: [...l.cards, tempCard] } : l),
+      })),
+    }));
     await dbAddCard(listId, title);
     get().loadBoard();
   },

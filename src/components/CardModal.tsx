@@ -25,8 +25,8 @@ export default function CardModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 px-4">
-      <div className="absolute inset-0 bg-black/60" onClick={() => setSelectedCard(null)} />
-      <div className="relative bg-[#323940] rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div className="absolute inset-0 bg-black/60 animate-backdrop-in" onClick={() => setSelectedCard(null)} />
+      <div className="relative bg-[#323940] rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl animate-modal-in">
         <ModalContent card={card} listTitle={listTitle} board={board} onClose={() => setSelectedCard(null)} />
       </div>
     </div>

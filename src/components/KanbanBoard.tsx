@@ -21,7 +21,7 @@ export default function KanbanBoard() {
   const [newListTitle, setNewListTitle] = useState('');
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {

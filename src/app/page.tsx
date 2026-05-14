@@ -10,6 +10,7 @@ import Dashboard from '@/components/Dashboard';
 import ActivityFeed from '@/components/ActivityFeed';
 import AutomationRules from '@/components/AutomationRules';
 import AuthWrapper from '@/components/AuthWrapper';
+import InstallPrompt from '@/components/InstallPrompt';
 import { useBoardStore } from '@/store/boardStore';
 
 export default function Home() {
@@ -60,6 +61,7 @@ function HomeContent() {
       {showActivity && <ActivityFeed onClose={toggleActivity} />}
       {showAutomation && <AutomationRules onClose={toggleAutomation} />}
       <AIAssistant />
+      <InstallPrompt />
     </div>
   );
 }

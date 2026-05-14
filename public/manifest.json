@@ -1,0 +1,27 @@
+{
+  "name": "TaskFlow - Content Marketing Kanban",
+  "short_name": "TaskFlow",
+  "description": "จัดการงาน Content Marketing แบบ Kanban พร้อม AI",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1117",
+  "theme_color": "#6366f1",
+  "lang": "th",
+  "icons": [
+    {
+      "src": "/icon-192",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "business"],
+  "screenshots": []
+}

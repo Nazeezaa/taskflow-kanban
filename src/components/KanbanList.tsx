@@ -14,19 +14,20 @@ export default function KanbanList({ list }: { list: List }) {
   const [newTitle, setNewTitle] = useState('');
   const [showMenu, setShowMenu] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
-  const { addCard, deleteList, searchQuery } = useBoardStore();
+  const { addCard, deleteList, searchQuery, showArchived } = useBoardStore();
 
   const { setNodeRef, isOver } = useDroppable({
     id: `list-${list.id}`,
     data: { type: 'list', list },
   });
 
+  const baseCards = showArchived ? list.cards : list.cards.filter((c) => !c.archived);
   const filteredCards = searchQuery
-    ? list.cards.filter(c =>
+    ? baseCards.filter(c =>
         c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.description.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : list.cards;
+    : baseCards;
 
   const handleAdd = () => {
     if (newTitle.trim()) {

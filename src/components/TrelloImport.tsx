@@ -12,7 +12,7 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
-  const [preview, setPreview] = useState<{ lists: number; cards: number; labels: number; checklists: number; actions: number } | null>(null);
+  const [preview, setPreview] = useState<{ lists: number; cards: number; archived: number; labels: number; checklists: number; actions: number; attachments: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [parsed, setParsed] = useState<TrelloExport | null>(null);
@@ -33,9 +33,11 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
       setPreview({
         lists: json.lists.filter((l) => !l.closed).length,
         cards: json.cards.length,
+        archived: json.cards.filter((c) => c.closed).length,
         labels: json.labels?.length || 0,
         checklists: json.checklists?.length || 0,
         actions: json.actions?.filter((a) => a.type === 'commentCard').length || 0,
+        attachments: json.cards.reduce((s, c) => s + (c.attachments?.length || 0), 0),
       });
     } catch (e: any) {
       setError(e.message || 'ไฟล์ไม่ถูกต้อง');
@@ -88,10 +90,10 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
               <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 mb-4">
                 <p className="text-sm text-blue-200 font-medium mb-1">📤 วิธี export จาก Trello</p>
                 <ol className="text-xs text-blue-100/80 space-y-1 list-decimal pl-4">
-                  <li>เปิด Trello board → คลิกเมนูขวาบน "Show menu"</li>
-                  <li>เลือก "..." → "Print, export, and share"</li>
-                  <li>กด "Export as JSON"</li>
-                  <li>Save ไฟล์ .json แล้วลากมาวางในกรอบด้านล่าง</li>
+                  <li>เปิด Trello board → คลิก "Show menu" มุมขวาบน</li>
+                  <li>"..." → "Print, export, and share" → "Export as JSON"</li>
+                  <li>✅ <b>Workspace ต้องเป็น Premium</b> (ฟรี 14 วัน) ถึงจะดึง attachments + archived ได้ครบ</li>
+                  <li>Save ไฟล์ .json → ลากมาวางด้านล่าง</li>
                 </ol>
               </div>
 
@@ -133,10 +135,11 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
                   <p className="text-xs text-gray-400 mb-2 font-medium">พบในไฟล์:</p>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <Stat label="Lists" value={preview.lists} />
-                    <Stat label="Cards" value={preview.cards} />
+                    <Stat label="Cards (รวม archive)" value={preview.cards} highlight={preview.archived > 0 ? `${preview.archived} archived` : undefined} />
                     <Stat label="Labels" value={preview.labels} />
                     <Stat label="Checklists" value={preview.checklists} />
                     <Stat label="Comments" value={preview.actions} />
+                    <Stat label="Attachments" value={preview.attachments} />
                   </div>
                   <button
                     onClick={handleImport}
@@ -182,10 +185,11 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
               <div className="space-y-2 mb-4">
                 <ResultRow label="Lists" created={result.lists.created} matched={result.lists.matched} />
                 <ResultRow label="Labels" created={result.labels.created} matched={result.labels.matched} />
-                <ResultRow label="Cards" created={result.cards.created} skipped={result.cards.skipped} />
+                <ResultRow label="Cards" created={result.cards.created} skipped={result.cards.skipped} extra={result.cards.archived > 0 ? `${result.cards.archived} archive` : undefined} />
                 <ResultRow label="Checklists" created={result.checklists} />
                 <ResultRow label="Checklist items" created={result.checklistItems} />
                 <ResultRow label="Comments" created={result.comments} />
+                <ResultRow label="Attachments" created={result.attachments} />
               </div>
 
               {result.errors.length > 0 && (
@@ -216,17 +220,18 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, highlight }: { label: string; value: number; highlight?: string }) {
   return (
     <div className="bg-white/5 rounded px-3 py-2">
       <p className="text-xs text-gray-500">{label}</p>
       <p className="text-lg font-semibold text-white">{value}</p>
+      {highlight && <p className="text-[10px] text-yellow-400">{highlight}</p>}
     </div>
   );
 }
 
-function ResultRow({ label, created, matched, skipped }: {
-  label: string; created: number; matched?: number; skipped?: number;
+function ResultRow({ label, created, matched, skipped, extra }: {
+  label: string; created: number; matched?: number; skipped?: number; extra?: string;
 }) {
   return (
     <div className="flex items-center justify-between text-sm bg-white/5 rounded px-3 py-2">
@@ -235,6 +240,7 @@ function ResultRow({ label, created, matched, skipped }: {
         {created > 0 && <span className="text-green-400">+{created} ใหม่</span>}
         {matched != null && matched > 0 && <span className="text-blue-400">{matched} match</span>}
         {skipped != null && skipped > 0 && <span className="text-gray-500">{skipped} ข้าม</span>}
+        {extra && <span className="text-yellow-400">{extra}</span>}
       </div>
     </div>
   );

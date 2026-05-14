@@ -27,6 +27,9 @@ interface BoardState {
   currentUser: Profile | null;
   allUsers: Profile[];
   onlineUserIds: string[];
+  showArchived: boolean;
+  toggleShowArchived: () => void;
+  unarchiveCard: (cardId: string) => void;
 
   loadAuth: () => Promise<void>;
   setCurrentUser: (u: Profile | null) => void;
@@ -88,6 +91,12 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   currentUser: null,
   allUsers: [],
   onlineUserIds: [],
+  showArchived: false,
+  toggleShowArchived: () => set((s) => ({ showArchived: !s.showArchived })),
+  unarchiveCard: async (cardId) => {
+    await dbUpdateCard(cardId, { archived: false });
+    get().loadBoard();
+  },
 
   loadAuth: async () => {
     const [profile, allProfiles] = await Promise.all([getCurrentProfile(), getAllProfiles()]);

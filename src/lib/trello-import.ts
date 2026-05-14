@@ -17,6 +17,25 @@ import { supabase } from './supabase';
 
 const BOARD_ID = '00000000-0000-0000-0000-000000000001';
 
+function guessMimeFromUrl(url: string): string {
+  const ext = url.split('.').pop()?.toLowerCase().split(/[?#]/)[0] || '';
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', svg: 'image/svg+xml',
+    pdf: 'application/pdf', mp4: 'video/mp4', mov: 'video/quicktime',
+    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ai: 'application/postscript', psd: 'image/vnd.adobe.photoshop',
+    zip: 'application/zip',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+function isImageUrl(url: string): boolean {
+  return /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(url);
+}
+
 // Trello color → TaskFlow hex
 const TRELLO_COLOR_MAP: Record<string, string> = {
   green: '#22c55e',
@@ -32,6 +51,17 @@ const TRELLO_COLOR_MAP: Record<string, string> = {
   null: '#6b7280',
 };
 
+export interface TrelloAttachment {
+  id: string;
+  name?: string;
+  url?: string;
+  bytes?: number;
+  mimeType?: string;
+  date?: string;
+  isUpload?: boolean;
+  previews?: { url: string; width: number; height: number }[];
+}
+
 export interface TrelloCard {
   id: string;
   name: string;
@@ -44,6 +74,9 @@ export interface TrelloCard {
   idLabels?: string[];
   idChecklists?: string[];
   start?: string | null;
+  attachments?: TrelloAttachment[];
+  idAttachmentCover?: string | null;
+  cover?: { idAttachment?: string | null; color?: string | null };
 }
 
 export interface TrelloList {
@@ -90,10 +123,11 @@ export interface TrelloExport {
 export interface ImportResult {
   lists: { created: number; matched: number };
   labels: { created: number; matched: number };
-  cards: { created: number; skipped: number };
+  cards: { created: number; skipped: number; archived: number };
   checklists: number;
   checklistItems: number;
   comments: number;
+  attachments: number;
   errors: string[];
 }
 
@@ -110,10 +144,11 @@ export async function importTrelloJSON(
   const result: ImportResult = {
     lists: { created: 0, matched: 0 },
     labels: { created: 0, matched: 0 },
-    cards: { created: 0, skipped: 0 },
+    cards: { created: 0, skipped: 0, archived: 0 },
     checklists: 0,
     checklistItems: 0,
     comments: 0,
+    attachments: 0,
     errors: [],
   };
 
@@ -218,6 +253,11 @@ export async function importTrelloJSON(
       trello_id: tCard.id,
     };
 
+    // Trello cover color (if no attachment cover)
+    if (tCard.cover?.color && !tCard.cover.idAttachment) {
+      cardInsert.cover_color = TRELLO_COLOR_MAP[tCard.cover.color] || null;
+    }
+
     if (tCard.dueComplete && tCard.due) {
       cardInsert.completed_at = tCard.due;
     }
@@ -232,6 +272,7 @@ export async function importTrelloJSON(
 
     cardIdMap.set(tCard.id, newCard.id);
     result.cards.created++;
+    if (tCard.closed) result.cards.archived++;
 
     // Card labels
     if (tCard.idLabels?.length) {
@@ -241,6 +282,36 @@ export async function importTrelloJSON(
         .map((labelId) => ({ card_id: newCard.id, label_id: labelId as string }));
       if (labelLinks.length) {
         await supabase.from('card_labels').insert(labelLinks);
+      }
+    }
+
+    // Card attachments — store URL + name (don't re-host files; user can click to open)
+    // Trello attachment URLs for uploaded files require Trello auth, but most modern boards
+    // serve them as public-ish trello-attachments.s3 URLs. Link attachments work for everyone.
+    if (tCard.attachments?.length) {
+      const atts = tCard.attachments
+        .filter((a) => a.url)
+        .map((a) => ({
+          card_id: newCard.id,
+          name: a.name || a.url!.split('/').pop() || 'attachment',
+          url: a.url!,
+          type: a.mimeType || guessMimeFromUrl(a.url!),
+          size: a.bytes || null,
+          is_cover: tCard.idAttachmentCover === a.id || tCard.cover?.idAttachment === a.id,
+          created_at: a.date || new Date().toISOString(),
+        }));
+      if (atts.length) {
+        const { error } = await supabase.from('attachments').insert(atts);
+        if (error) result.errors.push(`attachments for "${tCard.name}": ${error.message}`);
+        else result.attachments += atts.length;
+
+        // Set cover_image on card if any attachment is cover + is image
+        const cover = atts.find(
+          (a) => a.is_cover && (a.type?.startsWith('image/') || isImageUrl(a.url))
+        );
+        if (cover) {
+          await supabase.from('cards').update({ cover_image: cover.url }).eq('id', newCard.id);
+        }
       }
     }
   }

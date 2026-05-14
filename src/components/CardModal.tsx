@@ -519,7 +519,11 @@ function ModalContent({ card, listTitle, board, onClose }: { card: Card; listTit
 
             <SideBtn icon={<ArrowRight size={14} />} label="Move" onClick={() => setShowMoveCard(!showMoveCard)} />
             <SideBtn icon={<Copy size={14} />} label="Copy" onClick={() => setShowCopyCard(!showCopyCard)} />
-            <SideBtn icon={<Archive size={14} />} label="Archive" onClick={handleArchive} />
+            {card.archived ? (
+              <SideBtn icon={<Archive size={14} />} label="Unarchive" onClick={() => { store.unarchiveCard(card.id); }} />
+            ) : (
+              <SideBtn icon={<Archive size={14} />} label="Archive" onClick={handleArchive} />
+            )}
 
             <hr className="border-white/10 my-2" />
             <button onClick={handleDelete} className="sidebar-btn text-red-400 hover:!bg-red-500/10 w-full">

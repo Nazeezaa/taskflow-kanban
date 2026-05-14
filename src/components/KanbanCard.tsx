@@ -31,7 +31,9 @@ export default function KanbanCard({ card }: { card: Card }) {
       {...attributes}
       {...listeners}
       onClick={() => setSelectedCard(card.id)}
-      className="kanban-card animate-card-in bg-[#22272b] rounded-lg shadow-md cursor-pointer hover:ring-2 hover:ring-blue-500/50 group mb-2"
+      className={`kanban-card animate-card-in rounded-lg shadow-md cursor-pointer hover:ring-2 hover:ring-blue-500/50 group mb-2 ${
+        card.archived ? 'bg-[#22272b]/50 opacity-60 ring-1 ring-yellow-700/40' : 'bg-[#22272b]'
+      }`}
     >
       {card.coverColor && (
         <div className="h-8 rounded-t-lg" style={{ backgroundColor: card.coverColor }} />
@@ -57,6 +59,11 @@ export default function KanbanCard({ card }: { card: Card }) {
         <p className="text-sm text-gray-200 leading-snug">{card.title}</p>
 
         <div className="flex items-center gap-2.5 mt-2 flex-wrap">
+          {card.archived && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-700/30 text-yellow-300 font-medium uppercase">
+              Archived
+            </span>
+          )}
           {card.isWatching && (
             <Eye size={14} className="text-gray-400" />
           )}

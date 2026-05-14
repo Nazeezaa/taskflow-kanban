@@ -66,7 +66,8 @@ export async function fetchBoard(): Promise<Board | null> {
     cardChecklists.set(cl.card_id, arr);
   }
 
-  const builtCards: Card[] = (cards || []).filter((c: any) => !c.archived).map((c: any) => ({
+  // Include archived cards too — the UI decides whether to show them (boardStore.showArchived)
+  const builtCards: Card[] = (cards || []).map((c: any) => ({
     id: c.id,
     title: c.title,
     description: c.description || '',

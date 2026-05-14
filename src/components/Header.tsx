@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Sparkles, Bell, Star, LayoutGrid, BarChart3, Calendar, Zap, Clock, LogOut, Download } from 'lucide-react';
+import { Search, Sparkles, Bell, Star, LayoutGrid, BarChart3, Calendar, Zap, Clock, LogOut, Download, Archive } from 'lucide-react';
 import { useBoardStore } from '@/store/boardStore';
 import { signOut } from '@/lib/auth';
 import TrelloImport from './TrelloImport';
@@ -13,6 +13,7 @@ export default function Header() {
     activeView, setActiveView, toggleActivity, showActivity,
     toggleAutomation,
     currentUser, allUsers, onlineUserIds,
+    showArchived, toggleShowArchived,
   } = useBoardStore();
   const board = boards.find(b => b.id === activeBoardId);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -99,6 +100,17 @@ export default function Header() {
           className="w-40 bg-white/5 text-sm text-white rounded-lg pl-8 pr-3 py-1.5 outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
         />
       </div>
+
+      {/* Show archived toggle */}
+      <button
+        onClick={toggleShowArchived}
+        className={`p-2 rounded-lg transition-colors press ${
+          showArchived ? 'bg-yellow-600/30 text-yellow-300' : 'hover:bg-white/10 text-gray-400'
+        }`}
+        title={showArchived ? 'ซ่อน archived' : 'แสดง archived'}
+      >
+        <Archive size={17} />
+      </button>
 
       {/* Import from Trello */}
       <button

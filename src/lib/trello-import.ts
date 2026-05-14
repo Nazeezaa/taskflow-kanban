@@ -230,14 +230,25 @@ export async function importTrelloJSON(
   // ─────────────────────────────────────────────
   // Build all card rows + relationships client-side first, then bulk insert
   // (10-50× faster than per-row inserts for large boards)
+  //
+  // IMPORTANT: Trello uses HUGE pos values (e.g. 35184371804160) which overflow
+  // PostgreSQL int. We sort by Trello pos then re-assign sequential 0,1,2,...
   // ─────────────────────────────────────────────
   const cardRows: any[] = [];
   const cardLabelRows: { card_id: string; label_id: string }[] = [];
   const attachmentRows: any[] = [];
   const cardCoverUpdates: { id: string; cover_image: string }[] = [];
 
-  for (let i = 0; i < cards.length; i++) {
-    const tCard = cards[i];
+  // Sort cards by [idList, pos] so we can assign sequential positions per list
+  const sortedCards = [...cards].sort((a, b) => {
+    if (a.idList !== b.idList) return a.idList.localeCompare(b.idList);
+    return (a.pos || 0) - (b.pos || 0);
+  });
+  // Track per-list position counter
+  const positionPerList = new Map<string, number>();
+
+  for (let i = 0; i < sortedCards.length; i++) {
+    const tCard = sortedCards[i];
     if (existingTrelloIds.has(tCard.id)) {
       result.cards.skipped++;
       continue;
@@ -249,12 +260,14 @@ export async function importTrelloJSON(
     }
 
     const newCardId = uuidv4();
+    const positionInList = positionPerList.get(taskflowListId) || 0;
+    positionPerList.set(taskflowListId, positionInList + 1);
     const cardRow: any = {
       id: newCardId,
       list_id: taskflowListId,
       title: tCard.name || '(no title)',
       description: tCard.desc || '',
-      position: tCard.pos || 0,
+      position: positionInList, // sequential 0,1,2,... to avoid Trello's huge pos overflowing int
       due_date: tCard.due || null,
       start_date: tCard.start || null,
       archived: !!tCard.closed,
@@ -349,20 +362,31 @@ export async function importTrelloJSON(
     const checklistRows: any[] = [];
     const itemRows: any[] = [];
 
-    for (const tCl of data.checklists) {
+    // Sort checklists by Trello pos within each card, then assign 0,1,2,...
+    const sortedChecklists = [...data.checklists].sort((a, b) => {
+      if (a.idCard !== b.idCard) return a.idCard.localeCompare(b.idCard);
+      return (a.pos || 0) - (b.pos || 0);
+    });
+    const clPosPerCard = new Map<string, number>();
+
+    for (const tCl of sortedChecklists) {
       const taskflowCardId = cardIdMap.get(tCl.idCard);
       if (!taskflowCardId) continue;
       const newClId = uuidv4();
+      const clPos = clPosPerCard.get(taskflowCardId) || 0;
+      clPosPerCard.set(taskflowCardId, clPos + 1);
       checklistRows.push({
-        id: newClId, card_id: taskflowCardId, title: tCl.name, position: tCl.pos || 0,
+        id: newClId, card_id: taskflowCardId, title: tCl.name, position: clPos,
       });
       if (tCl.checkItems?.length) {
-        tCl.checkItems.forEach((ci, idx) => {
+        // Sort items by Trello pos, then assign 0,1,2,...
+        const sortedItems = [...tCl.checkItems].sort((a, b) => (a.pos || 0) - (b.pos || 0));
+        sortedItems.forEach((ci, idx) => {
           itemRows.push({
             checklist_id: newClId,
             text: ci.name,
             completed: ci.state === 'complete',
-            position: ci.pos || idx,
+            position: idx, // sequential
           });
         });
       }

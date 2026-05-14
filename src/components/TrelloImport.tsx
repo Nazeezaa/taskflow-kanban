@@ -2,8 +2,9 @@
 
 import { useState, useRef } from 'react';
 import { X, Upload, CheckCircle, AlertCircle, FileJson, Loader2 } from 'lucide-react';
-import { importTrelloJSON, type ImportResult, type ImportProgress, type TrelloExport } from '@/lib/trello-import';
+import { type ImportResult, type ImportProgress, type TrelloExport } from '@/lib/trello-import';
 import { useBoardStore } from '@/store/boardStore';
+import { supabase } from '@/lib/supabase';
 
 export default function TrelloImport({ onClose }: { onClose: () => void }) {
   const { loadBoard } = useBoardStore();
@@ -50,10 +51,27 @@ export default function TrelloImport({ onClose }: { onClose: () => void }) {
     if (!parsed) return;
     setImporting(true);
     setError(null);
+    setProgress({ step: 'uploading' });
     try {
-      const r = await importTrelloJSON(parsed, setProgress);
-      setResult(r);
-      await loadBoard(); // refresh board
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('ต้อง login ก่อน');
+
+      setProgress({ step: 'processing' });
+      // Send JSON to server-side endpoint — avoids browser/extension fetch blocking
+      const res = await fetch('/api/import/trello', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ json: parsed }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Import failed (${res.status})`);
+      }
+      setResult(body.result);
+      await loadBoard();
     } catch (e: any) {
       setError(e.message || 'Import error');
     } finally {
@@ -265,6 +283,8 @@ function ResultRow({ label, created, matched, skipped, extra }: {
 
 function labelForStep(step: string): string {
   switch (step) {
+    case 'uploading': return 'กำลังส่งไฟล์ไป server...';
+    case 'processing': return 'Server กำลัง import ทุกอย่าง (รอประมาณ 30-60 วินาที)...';
     case 'lists': return 'Lists';
     case 'labels': return 'Labels';
     case 'cards': return 'Cards';

@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Sparkles, Bell, Star, LayoutGrid, BarChart3, Calendar, Zap, Clock, LogOut } from 'lucide-react';
+import { Search, Sparkles, Bell, Star, LayoutGrid, BarChart3, Calendar, Zap, Clock, LogOut, Download } from 'lucide-react';
 import { useBoardStore } from '@/store/boardStore';
 import { signOut } from '@/lib/auth';
+import TrelloImport from './TrelloImport';
 
 export default function Header() {
   const {
@@ -15,6 +16,7 @@ export default function Header() {
   } = useBoardStore();
   const board = boards.find(b => b.id === activeBoardId);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const onlineUsers = allUsers.filter(u => onlineUserIds.includes(u.id));
   const offlineUsers = allUsers.filter(u => !onlineUserIds.includes(u.id));
@@ -98,6 +100,15 @@ export default function Header() {
         />
       </div>
 
+      {/* Import from Trello */}
+      <button
+        onClick={() => setShowImport(true)}
+        className="p-2 hover:bg-white/10 rounded-lg text-gray-400 transition-colors press"
+        title="Import จาก Trello"
+      >
+        <Download size={17} />
+      </button>
+
       {/* Automation */}
       <button
         onClick={toggleAutomation}
@@ -180,6 +191,8 @@ export default function Header() {
           )}
         </div>
       )}
+
+      {showImport && <TrelloImport onClose={() => setShowImport(false)} />}
     </header>
   );
 }

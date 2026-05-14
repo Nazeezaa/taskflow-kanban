@@ -427,21 +427,18 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   },
 }));
 
-// Realtime subscriptions
+// Realtime subscriptions — debounced so bulk inserts (e.g. import) only trigger one refresh
 if (typeof window !== 'undefined') {
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const debouncedLoad = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => useBoardStore.getState().loadBoard(), 800);
+  };
   supabase
     .channel('db-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, () => {
-      useBoardStore.getState().loadBoard();
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'lists' }, () => {
-      useBoardStore.getState().loadBoard();
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
-      useBoardStore.getState().loadBoard();
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'attachments' }, () => {
-      useBoardStore.getState().loadBoard();
-    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, debouncedLoad)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'lists' }, debouncedLoad)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, debouncedLoad)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'attachments' }, debouncedLoad)
     .subscribe();
 }

@@ -346,11 +346,15 @@ export async function importTrelloJSON(
     }
   }
 
-  // Update card covers (only those with image attachment cover)
+  // Update card covers in parallel (10 concurrent batches)
   if (cardCoverUpdates.length) {
-    // No batch update in Supabase — do these one by one but only the small subset that has cover
-    for (const u of cardCoverUpdates) {
-      await supabase.from('cards').update({ cover_image: u.cover_image }).eq('id', u.id);
+    for (let i = 0; i < cardCoverUpdates.length; i += 10) {
+      const chunk = cardCoverUpdates.slice(i, i + 10);
+      await Promise.all(
+        chunk.map((u) =>
+          supabase.from('cards').update({ cover_image: u.cover_image }).eq('id', u.id)
+        )
+      );
     }
   }
 

@@ -252,6 +252,23 @@ function resolvePeriod(key: PeriodKey): { start: Date; end: Date; label: string 
   return { start, end, label };
 }
 
+/**
+ * Read TRELLO_DESIGNER_USERNAMES env (comma-separated usernames).
+ * If set, KPI counts ONLY cards assigned to those usernames.
+ * If empty/unset, counts all board members (legacy behaviour).
+ */
+function getDesignerAllowlist(): Set<string> | null {
+  const raw = process.env.TRELLO_DESIGNER_USERNAMES;
+  if (!raw) return null;
+  return new Set(raw.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean));
+}
+
+function isDesigner(allowlist: Set<string> | null, member: { username: string; fullName: string }): boolean {
+  if (!allowlist) return true;
+  return allowlist.has(member.username.toLowerCase()) ||
+    allowlist.has(member.fullName.toLowerCase());
+}
+
 export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKey }): KpiSummary {
   const { lists, members, labels, cards, actions } = snap;
   const completionTimes = computeCompletionTimes(cards, lists, actions);
@@ -262,6 +279,19 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
 
   const periodKey: PeriodKey = opts?.period || 'month';
   const period = resolvePeriod(periodKey);
+
+  const designerAllowlist = getDesignerAllowlist();
+
+  // A card "counts" for KPI only if at least one assigned member is in the allowlist.
+  // If no allowlist set, every card counts (legacy behaviour).
+  const cardCountsForKpi = (card: TrelloCard): boolean => {
+    if (!designerAllowlist) return true;
+    for (const mid of card.idMembers || []) {
+      const m = memberById.get(mid);
+      if (m && isDesigner(designerAllowlist, m)) return true;
+    }
+    return false;
+  };
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -283,10 +313,10 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
   const completedThisWeek: TrelloCard[] = [];
 
   for (const card of cards) {
-    if (card.closed) continue; // archived in Trello
+    if (card.closed) continue;
+    if (!cardCountsForKpi(card)) continue; // skip cards not assigned to any designer
     const completedAt = completionTimes.get(card.id);
     if (!completedAt) continue;
-    // Only count cards completed in selected period for "completed" KPI
     const inPeriod = isInRange(completedAt, period.start, period.end);
     if (inPeriod) {
       completedCount++;
@@ -316,6 +346,7 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
     for (const mid of card.idMembers || []) {
       const m = memberById.get(mid);
       if (!m) continue;
+      if (!isDesigner(designerAllowlist, m)) continue; // skip non-designers
       let agg = byDesignerMap.get(mid);
       if (!agg) {
         agg = { id: mid, name: m.fullName, username: m.username,
@@ -349,12 +380,13 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
     }))
     .sort((a, b) => b.cardsCompletedThisMonth - a.cardsCompletedThisMonth);
 
-  // Per-list
+  // Per-list (scoped to designer if allowlist set)
   const byListMap = new Map<string, { id: string; name: string; count: number; active: number }>();
   for (const list of lists) {
     byListMap.set(list.id, { id: list.id, name: list.name, count: 0, active: 0 });
   }
   for (const card of cards) {
+    if (!cardCountsForKpi(card)) continue;
     const e = byListMap.get(card.idList);
     if (!e) continue;
     e.count++;
@@ -390,6 +422,7 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
     let n = 0;
     for (const card of cards) {
       if (card.closed) continue;
+      if (!cardCountsForKpi(card)) continue;
       const ct = completionTimes.get(card.id);
       if (ct && isInRange(ct, start, end)) n++;
     }
@@ -408,6 +441,7 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
   }
   for (const card of cards) {
     if (card.closed) continue;
+    if (!cardCountsForKpi(card)) continue; // only show designer's stuck cards
     const currentList = listById.get(card.idList);
     if (!currentList || isDoneList(currentList)) continue;
     const movedAt = moveByCard.get(card.id) || creationTimes.get(card.id);
@@ -426,6 +460,9 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
   }
   bottlenecks.sort((a, b) => b.daysStuck - a.daysStuck);
 
+  // Total / active counts — also scoped to designer if allowlist is set
+  const scopedCards = designerAllowlist ? cards.filter(cardCountsForKpi) : cards;
+
   return {
     fetchedAt: snap.fetchedAt,
     period: {
@@ -435,8 +472,8 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
       end: period.end.toISOString(),
     },
     overall: {
-      totalCards: cards.length,
-      activeCards: cards.filter((c) => !c.closed).length,
+      totalCards: scopedCards.length,
+      activeCards: scopedCards.filter((c) => !c.closed).length,
       completedCards: completedCount,
       completedThisMonth: completedThisMonth.length,
       completedThisWeek: completedThisWeek.length,

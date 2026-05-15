@@ -9,7 +9,7 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { fetchTrelloBoardSnapshot, computeKpi, invalidateTrelloCache } from '@/lib/trello-api';
+import { fetchTrelloBoardSnapshot, computeKpi, invalidateTrelloCache, type PeriodKey } from '@/lib/trello-api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,9 +25,13 @@ export async function GET(req: NextRequest) {
   const force = req.nextUrl.searchParams.get('force') === '1';
   if (force) invalidateTrelloCache();
 
+  const validPeriods: PeriodKey[] = ['week', 'month', 'quarter', 'year', 'all'];
+  const periodParam = req.nextUrl.searchParams.get('period') as PeriodKey | null;
+  const period: PeriodKey = (periodParam && validPeriods.includes(periodParam)) ? periodParam : 'month';
+
   try {
     const snap = await fetchTrelloBoardSnapshot();
-    const kpi = computeKpi(snap);
+    const kpi = computeKpi(snap, { period });
     return NextResponse.json({
       ok: true,
       kpi,

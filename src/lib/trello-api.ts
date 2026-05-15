@@ -15,6 +15,7 @@ interface TrelloCard {
   id: string; name: string; idList: string; idLabels: string[]; idMembers: string[];
   closed: boolean; due: string | null; dueComplete: boolean; start: string | null;
   dateLastActivity: string;
+  shortUrl?: string;
 }
 interface TrelloAction {
   id: string; type: string; date: string;
@@ -67,7 +68,7 @@ export async function fetchTrelloBoardSnapshot(force = false): Promise<TrelloBoa
     trello<TrelloMember[]>(`/boards/${boardId}/members`, { fields: 'fullName,username' }),
     trello<TrelloLabel[]>(`/boards/${boardId}/labels`, { fields: 'name,color' }),
     trello<TrelloCard[]>(`/boards/${boardId}/cards`, {
-      fields: 'name,idList,idLabels,idMembers,closed,due,dueComplete,start,dateLastActivity',
+      fields: 'name,idList,idLabels,idMembers,closed,due,dueComplete,start,dateLastActivity,shortUrl',
       filter: 'all',
     }),
     // Pull last 1000 actions — enough for monthly KPI; filter to relevant types
@@ -168,18 +169,20 @@ function computeCreationTimes(cards: TrelloCard[], actions: TrelloAction[]): Map
   return result;
 }
 
+export type PeriodKey = 'week' | 'month' | 'quarter' | 'year' | 'all';
+
 export interface KpiSummary {
   fetchedAt: string;
-  period?: { start: string; end: string; label: string };
+  period: { key: PeriodKey; label: string; start: string; end: string };
   overall: {
     totalCards: number;
     activeCards: number;
-    completedCards: number;
+    completedCards: number;       // in period
     completedThisMonth: number;
     completedThisWeek: number;
-    onTimeRate: number;       // 0-1, completed ≤ due
-    onTimePct: number;        // 0-100
-    avgCycleTimeDays: number; // creation → done
+    onTimeRate: number;
+    onTimePct: number;
+    avgCycleTimeDays: number;
   };
   byDesigner: {
     id: string;
@@ -194,8 +197,15 @@ export interface KpiSummary {
   byList: { id: string; name: string; count: number; activeCount: number }[];
   byLabel: { id: string; name: string; color: string; count: number }[];
   throughput: { weekStart: string; completed: number }[];
-  // For HR
-  monthlyByDesigner?: HrDesignerKpi[];
+  /** Cards stuck > 7 days in current list (excluding done lists) */
+  bottlenecks: {
+    cardId: string;
+    cardName: string;
+    listName: string;
+    daysStuck: number;
+    members: string[];
+    url?: string;
+  }[];
 }
 
 export interface HrDesignerKpi {
@@ -207,7 +217,42 @@ export interface HrDesignerKpi {
   contentPerformance: null;
 }
 
-export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: { start: Date; end: Date } }): KpiSummary {
+function resolvePeriod(key: PeriodKey): { start: Date; end: Date; label: string } {
+  const now = new Date();
+  const end = new Date(now);
+  let start: Date;
+  let label: string;
+  switch (key) {
+    case 'week':
+      start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      start.setHours(0, 0, 0, 0);
+      label = 'สัปดาห์นี้';
+      break;
+    case 'month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      label = 'เดือนนี้';
+      break;
+    case 'quarter':
+      start = new Date(now);
+      start.setMonth(now.getMonth() - 3);
+      label = '3 เดือนล่าสุด';
+      break;
+    case 'year':
+      start = new Date(now);
+      start.setFullYear(now.getFullYear() - 1);
+      label = '1 ปีล่าสุด';
+      break;
+    case 'all':
+    default:
+      start = new Date(0);
+      label = 'ทั้งหมด';
+      break;
+  }
+  return { start, end, label };
+}
+
+export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKey }): KpiSummary {
   const { lists, members, labels, cards, actions } = snap;
   const completionTimes = computeCompletionTimes(cards, lists, actions);
   const creationTimes = computeCreationTimes(cards, actions);
@@ -215,10 +260,13 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: { start:
   const listById = new Map(lists.map((l) => [l.id, l]));
   const labelById = new Map(labels.map((l) => [l.id, l]));
 
+  const periodKey: PeriodKey = opts?.period || 'month';
+  const period = resolvePeriod(periodKey);
+
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - now.getDay()); // Sunday
+  weekStart.setDate(now.getDate() - now.getDay());
   weekStart.setHours(0, 0, 0, 0);
 
   const isInRange = (iso: string | null | undefined, from: Date, to?: Date) => {
@@ -238,18 +286,17 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: { start:
     if (card.closed) continue; // archived in Trello
     const completedAt = completionTimes.get(card.id);
     if (!completedAt) continue;
-    completedCount++;
-    // On-time
-    if (card.due) {
-      if (new Date(completedAt) <= new Date(card.due)) onTimeCount++;
-    }
-    // Cycle time
-    const createdAt = creationTimes.get(card.id);
-    if (createdAt) {
-      const days = (new Date(completedAt).getTime() - new Date(createdAt).getTime()) / 86400000;
-      if (days >= 0 && days < 365) {
-        cycleSum += days;
-        cycleN++;
+    // Only count cards completed in selected period for "completed" KPI
+    const inPeriod = isInRange(completedAt, period.start, period.end);
+    if (inPeriod) {
+      completedCount++;
+      if (card.due) {
+        if (new Date(completedAt) <= new Date(card.due)) onTimeCount++;
+      }
+      const createdAt = creationTimes.get(card.id);
+      if (createdAt) {
+        const days = (new Date(completedAt).getTime() - new Date(createdAt).getTime()) / 86400000;
+        if (days >= 0 && days < 365) { cycleSum += days; cycleN++; }
       }
     }
     if (isInRange(completedAt, monthStart)) completedThisMonth.push(card);
@@ -349,8 +396,44 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: { start:
     throughput.push({ weekStart: start.toISOString().slice(0, 10), completed: n });
   }
 
+  // Bottleneck: cards stuck in current (non-done) list > 7 days
+  // "stuck" = no listAfter action for this card since N days ago, OR creation > N days ago for cards never moved
+  const bottlenecks: KpiSummary['bottlenecks'] = [];
+  const moveByCard = new Map<string, string>(); // cardId → latest move-IN date
+  for (const a of actions) {
+    if (a.type === 'updateCard' && a.data?.card?.id && a.data.listAfter) {
+      const prev = moveByCard.get(a.data.card.id);
+      if (!prev || a.date > prev) moveByCard.set(a.data.card.id, a.date);
+    }
+  }
+  for (const card of cards) {
+    if (card.closed) continue;
+    const currentList = listById.get(card.idList);
+    if (!currentList || isDoneList(currentList)) continue;
+    const movedAt = moveByCard.get(card.id) || creationTimes.get(card.id);
+    if (!movedAt) continue;
+    const daysStuck = Math.floor((Date.now() - new Date(movedAt).getTime()) / 86400000);
+    if (daysStuck > 7) {
+      bottlenecks.push({
+        cardId: card.id,
+        cardName: card.name,
+        listName: currentList.name,
+        daysStuck,
+        members: (card.idMembers || []).map((mid) => memberById.get(mid)?.fullName).filter(Boolean) as string[],
+        url: card.shortUrl,
+      });
+    }
+  }
+  bottlenecks.sort((a, b) => b.daysStuck - a.daysStuck);
+
   return {
     fetchedAt: snap.fetchedAt,
+    period: {
+      key: periodKey,
+      label: period.label,
+      start: period.start.toISOString(),
+      end: period.end.toISOString(),
+    },
     overall: {
       totalCards: cards.length,
       activeCards: cards.filter((c) => !c.closed).length,
@@ -361,7 +444,7 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: { start:
       onTimePct: completedCount > 0 ? Math.round((onTimeCount / completedCount) * 100) : 0,
       avgCycleTimeDays: cycleN > 0 ? Math.round((cycleSum / cycleN) * 10) / 10 : 0,
     },
-    byDesigner, byList, byLabel, throughput,
+    byDesigner, byList, byLabel, throughput, bottlenecks,
   };
 }
 

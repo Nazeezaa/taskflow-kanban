@@ -253,14 +253,22 @@ function resolvePeriod(key: PeriodKey): { start: Date; end: Date; label: string 
 }
 
 /**
- * Read TRELLO_DESIGNER_USERNAMES env (comma-separated usernames).
- * If set, KPI counts ONLY cards assigned to those usernames.
- * If empty/unset, counts all board members (legacy behaviour).
+ * Build designer allowlist from explicit input OR env fallback.
+ *
+ * Priority:
+ *   1. opts.designerUsernames (passed from caller — e.g. HR app querying users
+ *      where role='GRAPHIC')
+ *   2. TRELLO_DESIGNER_USERNAMES env var (comma-separated, dev/standalone fallback)
+ *   3. null → count all board members (legacy)
  */
-function getDesignerAllowlist(): Set<string> | null {
+function resolveDesignerAllowlist(explicit?: string[] | null): Set<string> | null {
+  if (explicit && explicit.length > 0) {
+    return new Set(explicit.map((u) => u.toLowerCase()).filter(Boolean));
+  }
   const raw = process.env.TRELLO_DESIGNER_USERNAMES;
   if (!raw) return null;
-  return new Set(raw.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean));
+  const list = raw.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean);
+  return list.length > 0 ? new Set(list) : null;
 }
 
 function isDesigner(allowlist: Set<string> | null, member: { username: string; fullName: string }): boolean {
@@ -269,7 +277,17 @@ function isDesigner(allowlist: Set<string> | null, member: { username: string; f
     allowlist.has(member.fullName.toLowerCase());
 }
 
-export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKey }): KpiSummary {
+export interface ComputeKpiOptions {
+  period?: PeriodKey;
+  /**
+   * Explicit allowlist of Trello usernames (or full names) to count as designers.
+   * Caller should pass values from their own data source (e.g. HR users where role='GRAPHIC').
+   * If omitted, falls back to TRELLO_DESIGNER_USERNAMES env var, then "count all".
+   */
+  designerUsernames?: string[];
+}
+
+export function computeKpi(snap: TrelloBoardSnapshot, opts?: ComputeKpiOptions): KpiSummary {
   const { lists, members, labels, cards, actions } = snap;
   const completionTimes = computeCompletionTimes(cards, lists, actions);
   const creationTimes = computeCreationTimes(cards, actions);
@@ -280,7 +298,7 @@ export function computeKpi(snap: TrelloBoardSnapshot, opts?: { period?: PeriodKe
   const periodKey: PeriodKey = opts?.period || 'month';
   const period = resolvePeriod(periodKey);
 
-  const designerAllowlist = getDesignerAllowlist();
+  const designerAllowlist = resolveDesignerAllowlist(opts?.designerUsernames);
 
   // A card "counts" for KPI only if at least one assigned member is in the allowlist.
   // If no allowlist set, every card counts (legacy behaviour).
